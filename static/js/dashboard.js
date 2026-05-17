@@ -871,23 +871,36 @@
     }
 
     function buildSaltDetailHtml(safeDomain, meta) {
+        var cfg = window._saltConfig || {};
+
+        // Salt Masters options — from config
         var saltMastersOptions = '';
-        // Fetch masters from cache if available (loaded on page init)
-        var mastersCache = window._saltMastersConfig || [];
+        var mastersCache = cfg.masters || window._saltMastersConfig || [];
         mastersCache.forEach(function (m) {
             var selected = meta && Array.isArray(meta.salt_masters) && meta.salt_masters.indexOf(m.id) !== -1 ? ' selected' : '';
             saltMastersOptions += '<option value="' + escapeHtml(m.id) + '"' + selected + '>' + escapeHtml(m.label || m.id) + '</option>';
         });
 
-        var envOptions = ['production', 'staging', 'development'].map(function (e) {
+        // Environments — from config, fallback to defaults
+        var environments = Array.isArray(cfg.environments) && cfg.environments.length ? cfg.environments : ['production', 'staging', 'development'];
+        var envOptions = environments.map(function (e) {
             var sel = meta && meta.environment === e ? ' selected' : '';
-            return '<option value="' + e + '"' + sel + '>' + e.charAt(0).toUpperCase() + e.slice(1) + '</option>';
+            return '<option value="' + escapeHtml(e) + '"' + sel + '>' + escapeHtml(e.charAt(0).toUpperCase() + e.slice(1)) + '</option>';
         }).join('');
 
-        var svcOptions = ['nginx', 'apache2', 'httpd', 'custom'].map(function (s) {
+        // Services — from config, fallback to defaults
+        var services = Array.isArray(cfg.services) && cfg.services.length ? cfg.services : ['nginx', 'apache2', 'httpd', 'custom'];
+        var svcOptions = services.map(function (s) {
             var sel = meta && meta.service_restart === s ? ' selected' : '';
-            return '<option value="' + s + '"' + sel + '>' + s + '</option>';
+            return '<option value="' + escapeHtml(s) + '"' + sel + '>' + escapeHtml(s) + '</option>';
         }).join('');
+
+        // Minion presets datalist
+        var minionPresets = Array.isArray(cfg.minion_presets) ? cfg.minion_presets : [];
+        var datalistId = 'salt-minions-dl-' + safeDomain.replace(/\./g, '-');
+        var datalistHtml = '<datalist id="' + datalistId + '">' +
+            minionPresets.map(function (p) { return '<option value="' + escapeHtml(p) + '">'; }).join('') +
+            '</datalist>';
 
         var minionsVal = meta && Array.isArray(meta.minions) ? escapeHtml(meta.minions.join(', ')) : '';
         var deployChecked = (!meta || meta.deploy_enabled !== false) ? ' checked' : '';
@@ -902,7 +915,8 @@
             '</select></div>' +
             '<div>' +
             '<label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-server mr-1 text-purple-400"></i>Minion Targets</label>' +
-            '<input type="text" name="minions" value="' + minionsVal + '" placeholder="web-01, web-02, api-04" class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md py-1.5 px-2 text-xs focus:ring-orange-400 focus:border-orange-400"></div>' +
+            datalistHtml +
+            '<input type="text" name="minions" list="' + datalistId + '" value="' + minionsVal + '" placeholder="web-01, web-02, api-04" class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md py-1.5 px-2 text-xs focus:ring-orange-400 focus:border-orange-400"></div>' +
             '<div class="grid grid-cols-2 gap-2">' +
             '<div><label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-layer-group mr-1 text-blue-400"></i>Ambiente</label>' +
             '<select name="environment" class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md py-1.5 px-2 text-xs focus:ring-orange-400 focus:border-orange-400"><option value="">—</option>' + envOptions + '</select></div>' +
@@ -920,7 +934,6 @@
 
     function submitSaltMetadata(event, safeDomain) {
         event.preventDefault();
-        var rawDomain = safeDomain; // already safe (escapeHtml-ed), domain is the same
         var form = event.target;
         var mastersSelect = form.querySelector('[name="salt_masters"]');
         var masters = mastersSelect ? Array.prototype.filter.call(mastersSelect.options, function (o) { return o.selected; }).map(function (o) { return o.value; }) : [];
@@ -934,7 +947,7 @@
         var origHtml = submitBtn ? submitBtn.innerHTML : '';
         if (submitBtn) { submitBtn.disabled = true; submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Salvataggio...'; }
 
-        saveSaltMetadata(rawDomain, {
+        saveSaltMetadata(safeDomain, {
             salt_masters: masters,
             minions: minions,
             environment: environment,
@@ -943,11 +956,11 @@
         }, function (ok, res) {
             if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = origHtml; }
             if (ok) {
-                showMessage('Configurazione Salt salvata per ' + rawDomain, 'success');
+                showMessage('Configurazione Salt salvata per ' + safeDomain, 'success');
                 // Refresh Salt column in table
-                var domainId = rawDomain.replace(/\./g, '-');
+                var domainId = safeDomain.replace(/\./g, '-');
                 var cell = document.getElementById('salt-cell-' + domainId);
-                if (cell) cell.innerHTML = saltBadgeHtml(rawDomain);
+                if (cell) cell.innerHTML = saltBadgeHtml(safeDomain);
             } else {
                 showMessage((res && res.error) || 'Errore nel salvataggio', 'error');
             }

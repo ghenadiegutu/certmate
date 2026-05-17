@@ -403,21 +403,16 @@ def register_cert_routes(app, managers, require_web_auth, auth_manager,
             return denial
         data = request.get_json(silent=True) or {}
 
-        # Validate
+        # Validate structure only — actual allowed values come from config/salt_masters.json
+        # so we accept any non-empty string (user may add custom envs/services)
         salt_masters = data.get('salt_masters', [])
         if not isinstance(salt_masters, list):
             return jsonify({'error': 'salt_masters must be a list'}), 400
         minions = data.get('minions', [])
         if not isinstance(minions, list):
             return jsonify({'error': 'minions must be a list'}), 400
-        environment = data.get('environment', '')
-        valid_envs = {'', 'production', 'staging', 'development'}
-        if environment not in valid_envs:
-            return jsonify({'error': f'environment must be one of {sorted(valid_envs - {""})}'}), 400
-        service_restart = data.get('service_restart', '')
-        valid_services = {'', 'nginx', 'apache2', 'httpd', 'custom'}
-        if service_restart not in valid_services:
-            return jsonify({'error': f'service_restart must be one of {sorted(valid_services - {""})}'}), 400
+        environment = str(data.get('environment', ''))
+        service_restart = str(data.get('service_restart', ''))
 
         try:
             meta = _save_salt_metadata(domain, data)

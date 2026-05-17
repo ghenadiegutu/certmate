@@ -21,5 +21,26 @@
       "port": 8000,
       "environment": "development"
     }
+  ],
+  "environments": [
+    "production",
+    "staging",
+    "development"
+  ],
+  "services": [
+    "nginx",
+    "apache2",
+    "httpd",
+    "haproxy",
+    "traefik",
+    "caddy",
+    "custom"
+  ],
+  "minion_presets": [
+    "web-01",
+    "web-02",
+    "api-01",
+    "api-02",
+    "cdn-01"
   ]
 }

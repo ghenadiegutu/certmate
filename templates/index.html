@@ -312,9 +312,6 @@
                                         <select id="salt_environment" name="salt_environment"
                                                 class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200">
                                             <option value="">-- Seleziona ambiente --</option>
-                                            <option value="production">Production</option>
-                                            <option value="staging">Staging</option>
-                                            <option value="development">Development</option>
                                         </select>
                                     </div>
                                     <div>
@@ -325,10 +322,6 @@
                                         <select id="salt_service_restart" name="salt_service_restart"
                                                 class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200">
                                             <option value="">-- Seleziona servizio --</option>
-                                            <option value="nginx">Nginx</option>
-                                            <option value="apache2">Apache2</option>
-                                            <option value="httpd">Apache (httpd)</option>
-                                            <option value="custom">Custom</option>
                                         </select>
                                     </div>
                                 </div>
@@ -341,9 +334,10 @@
                                     <span class="font-normal text-xs text-gray-500 dark:text-gray-400 ml-1">Comma-separated</span>
                                 </label>
                                 <input type="text" id="salt_minions" name="salt_minions"
-                                       autocomplete="off"
+                                       list="salt_minions_list"
                                        class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200 placeholder-gray-400"
                                        placeholder="web-01, web-02, api-04, cdn-03">
+                                <datalist id="salt_minions_list"></datalist>
                                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                                     <i class="fas fa-info-circle mr-1"></i>
                                     Elenco minion separati da virgola: web-01, web-02, api-04
@@ -440,22 +434,61 @@
             if (ch) ch.style.transform = hidden ? 'rotate(180deg)' : '';
         }
 
-        // Load Salt Masters into the select from API and cache globally for detail panel
-        (function loadSaltMasters() {
+        // Load Salt config from API and populate all dropdowns dynamically
+        (function loadSaltConfig() {
             fetch('/api/web/salt-masters', { credentials: 'same-origin' })
                 .then(function(r) { return r.ok ? r.json() : null; })
                 .then(function(data) {
-                    if (!data || !Array.isArray(data.masters)) return;
-                    window._saltMastersConfig = data.masters;
-                    var sel = document.getElementById('salt_masters');
-                    if (!sel) return;
-                    sel.innerHTML = '';
-                    data.masters.forEach(function(m) {
-                        var opt = document.createElement('option');
-                        opt.value = m.id;
-                        opt.textContent = m.label || m.id;
-                        sel.appendChild(opt);
-                    });
+                    if (!data) return;
+                    window._saltConfig = data;
+                    window._saltMastersConfig = data.masters || [];
+
+                    // --- Salt Masters select ---
+                    var selMasters = document.getElementById('salt_masters');
+                    if (selMasters && Array.isArray(data.masters)) {
+                        selMasters.innerHTML = '';
+                        data.masters.forEach(function(m) {
+                            var opt = document.createElement('option');
+                            opt.value = m.id;
+                            opt.textContent = m.label || m.id;
+                            selMasters.appendChild(opt);
+                        });
+                    }
+
+                    // --- Environments select ---
+                    var selEnv = document.getElementById('salt_environment');
+                    if (selEnv && Array.isArray(data.environments)) {
+                        selEnv.innerHTML = '<option value="">-- Seleziona ambiente --</option>';
+                        data.environments.forEach(function(e) {
+                            var opt = document.createElement('option');
+                            opt.value = e;
+                            opt.textContent = e.charAt(0).toUpperCase() + e.slice(1);
+                            selEnv.appendChild(opt);
+                        });
+                    }
+
+                    // --- Services select ---
+                    var selSvc = document.getElementById('salt_service_restart');
+                    if (selSvc && Array.isArray(data.services)) {
+                        selSvc.innerHTML = '<option value="">-- Seleziona servizio --</option>';
+                        data.services.forEach(function(s) {
+                            var opt = document.createElement('option');
+                            opt.value = s;
+                            opt.textContent = s;
+                            selSvc.appendChild(opt);
+                        });
+                    }
+
+                    // --- Minion presets datalist ---
+                    var dl = document.getElementById('salt_minions_list');
+                    if (dl && Array.isArray(data.minion_presets)) {
+                        dl.innerHTML = '';
+                        data.minion_presets.forEach(function(p) {
+                            var opt = document.createElement('option');
+                            opt.value = p;
+                            dl.appendChild(opt);
+                        });
+                    }
                 })
                 .catch(function() {});
         })();
