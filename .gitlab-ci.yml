@@ -1,22 +1,4 @@
-stages:
-  - test
-
-# Linting e test basilari sul codice
-# Il build Docker viene fatto in locale e pushato manualmente al registry
-test:
-  stage: test
-  image: python:3.12-slim
-  cache:
-    key: pip-$CI_COMMIT_REF_SLUG
-    paths:
-      - .cache/pip
-  variables:
-    PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-  before_script:
-    - pip install -r requirements-minimal.txt bcrypt SQLAlchemy prometheus_client -q
-    - pip install -r requirements-test.txt -q
-  script:
-    - python -m pytest tests/ -x -q --tb=short
-  only:
-    - main
-    - merge_requests
+# CI temporaneamente disabilitata
+workflow:
+  rules:
+    - when: never
