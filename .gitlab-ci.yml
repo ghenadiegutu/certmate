@@ -1,11 +1,8 @@
 stages:
   - test
-  - build
 
-variables:
-  IMAGE_NAME: $CI_REGISTRY_IMAGE
-
-# ----- STAGE 1: Test -----
+# Linting e test basilari sul codice
+# Il build Docker viene fatto in locale e pushato manualmente al registry
 test:
   stage: test
   image: python:3.12-slim
@@ -23,28 +20,3 @@ test:
   only:
     - main
     - merge_requests
-
-# ----- STAGE 2: Build & push Docker image -----
-docker-build:
-  stage: build
-  image: docker:24
-  services:
-    - docker:24-dind
-  before_script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-  script:
-    - docker build -t $IMAGE_NAME:$CI_COMMIT_SHORT_SHA .
-    - docker push $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
-    - |
-      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
-        docker tag $IMAGE_NAME:$CI_COMMIT_SHORT_SHA $IMAGE_NAME:latest
-        docker push $IMAGE_NAME:latest
-      fi
-    - |
-      if [ -n "$CI_COMMIT_TAG" ]; then
-        docker tag $IMAGE_NAME:$CI_COMMIT_SHORT_SHA $IMAGE_NAME:$CI_COMMIT_TAG
-        docker push $IMAGE_NAME:$CI_COMMIT_TAG
-      fi
-  only:
-    - main
-    - tags
