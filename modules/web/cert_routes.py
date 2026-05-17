@@ -430,12 +430,14 @@ def register_cert_routes(app, managers, require_web_auth, auth_manager,
     @app.route('/api/webhook/cert-renewed', methods=['POST'])
     @auth_manager.require_role('viewer')
     def webhook_cert_renewed():
-        """Webhook endpoint: accepts cert_name, returns Salt metadata for external scripts."""
+        """Webhook: fire certificate_renewed event for a domain (triggers Salt deploy if configured)."""
+        from flask import current_app
         data = request.get_json(silent=True) or {}
-        cert_name = (data.get('cert_name') or '').strip()
+        cert_name = (data.get('cert_name') or data.get('domain') or '').strip()
         if not cert_name:
             return jsonify({'error': 'cert_name is required'}), 400
+        event_bus = current_app.config.get('EVENT_BUS')
+        if event_bus:
+            event_bus.publish('certificate_renewed', {'domain': cert_name})
         meta = _load_salt_metadata(cert_name)
-        if meta is None:
-            return jsonify({'error': f'No Salt metadata found for {cert_name}'}), 404
-        return jsonify(meta)
+        return jsonify({'status': 'accepted', 'domain': cert_name, 'salt_metadata': meta})
