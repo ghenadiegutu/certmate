@@ -275,13 +275,102 @@
                         </div>
                     </div>
                     
+                    <!-- Salt Deploy Configuration -->
+                    <div class="border-t border-gray-200 dark:border-gray-600 pt-6">
+                        <button type="button" onclick="toggleSaltOptions()"
+                                class="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-primary transition-colors duration-200">
+                            <i class="fas fa-terminal mr-2 text-orange-500"></i>
+                            Salt Deploy Configuration
+                            <i id="salt-chevron" class="fas fa-chevron-down ml-2 transform transition-transform duration-200"></i>
+                        </button>
+                        <div id="salt-options" class="hidden mt-4 p-4 bg-orange-50 dark:bg-orange-900/10 border border-orange-200 dark:border-orange-800/40 rounded-lg">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <!-- Salt Masters -->
+                                <div>
+                                    <label for="salt_masters" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                        <i class="fas fa-network-wired mr-2 text-orange-500"></i>
+                                        Salt Master(s)
+                                        <span class="font-normal text-xs text-gray-500 dark:text-gray-400 ml-1">Seleziona uno o più</span>
+                                    </label>
+                                    <select id="salt_masters" name="salt_masters" multiple
+                                            class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200"
+                                            size="3">
+                                        <!-- Populated dynamically from /api/web/salt-masters -->
+                                    </select>
+                                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                        <i class="fas fa-info-circle mr-1"></i>
+                                        Ctrl/Cmd + click per selezionare più master
+                                    </p>
+                                </div>
+                                <!-- Ambiente e Servizio -->
+                                <div class="space-y-4">
+                                    <div>
+                                        <label for="salt_environment" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                            <i class="fas fa-layer-group mr-2 text-blue-500"></i>
+                                            Ambiente
+                                        </label>
+                                        <select id="salt_environment" name="salt_environment"
+                                                class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200">
+                                            <option value="">-- Seleziona ambiente --</option>
+                                            <option value="production">Production</option>
+                                            <option value="staging">Staging</option>
+                                            <option value="development">Development</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="salt_service_restart" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                            <i class="fas fa-redo mr-2 text-teal-500"></i>
+                                            Servizio da riavviare
+                                        </label>
+                                        <select id="salt_service_restart" name="salt_service_restart"
+                                                class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200">
+                                            <option value="">-- Seleziona servizio --</option>
+                                            <option value="nginx">Nginx</option>
+                                            <option value="apache2">Apache2</option>
+                                            <option value="httpd">Apache (httpd)</option>
+                                            <option value="custom">Custom</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Minion Targets -->
+                            <div class="mt-4">
+                                <label for="salt_minions" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                    <i class="fas fa-server mr-2 text-purple-500"></i>
+                                    Minion Targets
+                                    <span class="font-normal text-xs text-gray-500 dark:text-gray-400 ml-1">Comma-separated</span>
+                                </label>
+                                <input type="text" id="salt_minions" name="salt_minions"
+                                       autocomplete="off"
+                                       class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200 placeholder-gray-400"
+                                       placeholder="web-01, web-02, api-04, cdn-03">
+                                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                    <i class="fas fa-info-circle mr-1"></i>
+                                    Elenco minion separati da virgola: web-01, web-02, api-04
+                                </p>
+                            </div>
+                            <!-- Deploy Enabled -->
+                            <div class="mt-4">
+                                <label class="flex items-center text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                                    <input type="checkbox" id="salt_deploy_enabled" name="salt_deploy_enabled" value="true" checked
+                                           class="rounded border-gray-300 text-orange-500 focus:ring-orange-400 dark:bg-gray-700 dark:border-gray-600 mr-2">
+                                    <i class="fas fa-rocket mr-2 text-orange-500"></i>
+                                    <span>
+                                        <strong>Abilita auto-deploy Salt</strong>
+                                        <span class="font-normal text-xs text-gray-500 dark:text-gray-400 ml-1">— il certificato verrà distribuito automaticamente al rinnovo</span>
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Action Button -->
                     <div class="flex flex-col sm:flex-row items-center justify-between space-y-3 sm:space-y-0">
                         <div class="text-sm text-gray-600 dark:text-gray-400">
                             <i class="fas fa-shield-alt mr-1 text-green-500"></i>
                             Free SSL certificates with automatic renewal
                         </div>
-                        <button type="submit" 
+                        <button type="submit"
                                 class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-lg shadow-lg text-white bg-gradient-to-r from-primary to-secondary hover:from-secondary hover:to-primary focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transform transition-all duration-200 hover:scale-105">
                             <i class="fas fa-magic mr-2"></i>
                             Create Certificate
@@ -340,6 +429,35 @@
                     if (ch) ch.style.transform = 'rotate(180deg)';
                 }
             } catch(e){}
+        })();
+
+        // Salt options toggle
+        function toggleSaltOptions() {
+            var el = document.getElementById('salt-options');
+            var ch = document.getElementById('salt-chevron');
+            var hidden = el.classList.contains('hidden');
+            el.classList.toggle('hidden');
+            if (ch) ch.style.transform = hidden ? 'rotate(180deg)' : '';
+        }
+
+        // Load Salt Masters into the select from API and cache globally for detail panel
+        (function loadSaltMasters() {
+            fetch('/api/web/salt-masters', { credentials: 'same-origin' })
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(data) {
+                    if (!data || !Array.isArray(data.masters)) return;
+                    window._saltMastersConfig = data.masters;
+                    var sel = document.getElementById('salt_masters');
+                    if (!sel) return;
+                    sel.innerHTML = '';
+                    data.masters.forEach(function(m) {
+                        var opt = document.createElement('option');
+                        opt.value = m.id;
+                        opt.textContent = m.label || m.id;
+                        sel.appendChild(opt);
+                    });
+                })
+                .catch(function() {});
         })();
         </script>
 
@@ -425,6 +543,9 @@
                             </th>
                             <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden lg:table-cell">
                                 Provider
+                            </th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden xl:table-cell">
+                                <i class="fas fa-terminal mr-1 text-orange-500"></i>Salt
                             </th>
                             <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden lg:table-cell">
                                 Deployment

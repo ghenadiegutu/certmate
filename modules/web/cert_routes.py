@@ -1,7 +1,10 @@
+import json
 import logging
 import zipfile
 import tempfile
 import os
+from datetime import datetime, timezone
+from pathlib import Path
 from flask import request, jsonify, send_file, after_this_request
 
 
@@ -312,3 +315,132 @@ def register_cert_routes(app, managers, require_web_auth, auth_manager,
         except Exception as e:
             logger.error(f"Certificate renewal failed via web: {str(e)}")
             return jsonify({'error': 'Certificate renewal failed'}), 500
+
+    # ------------------------------------------------------------------ #
+    #  Salt Deploy — helper                                                #
+    # ------------------------------------------------------------------ #
+
+    def _salt_metadata_path(domain: str) -> Path | None:
+        """Return the path for salt_metadata.json for *domain*, or None if invalid."""
+        cert_dir, error = _sanitize_domain(domain, file_ops.cert_dir)
+        if error:
+            return None
+        return cert_dir / 'salt_metadata.json'
+
+    def _load_salt_metadata(domain: str) -> dict | None:
+        path = _salt_metadata_path(domain)
+        if path is None or not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text(encoding='utf-8'))
+        except Exception:
+            return None
+
+    def _save_salt_metadata(domain: str, data: dict) -> dict:
+        path = _salt_metadata_path(domain)
+        if path is None:
+            raise ValueError('Invalid domain')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        now = datetime.now(timezone.utc).isoformat()
+        existing = _load_salt_metadata(domain) or {}
+        meta = {
+            'cert_name': domain,
+            'salt_masters': data.get('salt_masters', existing.get('salt_masters', [])),
+            'minions': data.get('minions', existing.get('minions', [])),
+            'service_restart': data.get('service_restart', existing.get('service_restart', '')),
+            'environment': data.get('environment', existing.get('environment', '')),
+            'deploy_enabled': bool(data.get('deploy_enabled', existing.get('deploy_enabled', True))),
+            'created_at': existing.get('created_at', now),
+            'updated_at': now,
+        }
+        # Atomic write: write to .tmp then rename
+        tmp = path.with_suffix('.tmp')
+        tmp.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding='utf-8')
+        tmp.replace(path)
+        return meta
+
+    # ------------------------------------------------------------------ #
+    #  GET /api/web/salt-masters  — return config/salt_masters.json       #
+    # ------------------------------------------------------------------ #
+
+    @app.route('/api/web/salt-masters', methods=['GET'])
+    @auth_manager.require_role('viewer')
+    def get_salt_masters():
+        """Return the list of configured Salt Masters."""
+        config_path = Path(__file__).resolve().parent.parent.parent / 'config' / 'salt_masters.json'
+        try:
+            if config_path.exists():
+                data = json.loads(config_path.read_text(encoding='utf-8'))
+            else:
+                data = {'masters': []}
+            return jsonify(data)
+        except Exception as e:
+            logger.error(f"Failed to load salt_masters.json: {e}")
+            return jsonify({'masters': []}), 200
+
+    # ------------------------------------------------------------------ #
+    #  GET/POST /api/web/certificates/<domain>/salt-metadata              #
+    # ------------------------------------------------------------------ #
+
+    @app.route('/api/web/certificates/<string:domain>/salt-metadata', methods=['GET'])
+    @auth_manager.require_role('viewer')
+    def get_salt_metadata(domain):
+        """Return Salt deploy metadata for a certificate."""
+        denial = _scope_denied(domain, 'salt_metadata_read')
+        if denial:
+            return denial
+        meta = _load_salt_metadata(domain)
+        if meta is None:
+            return jsonify({'error': 'No Salt metadata found'}), 404
+        return jsonify(meta)
+
+    @app.route('/api/web/certificates/<string:domain>/salt-metadata', methods=['POST'])
+    @auth_manager.require_role('operator')
+    def save_salt_metadata(domain):
+        """Create or update Salt deploy metadata for a certificate."""
+        denial = _scope_denied(domain, 'salt_metadata_write')
+        if denial:
+            return denial
+        data = request.get_json(silent=True) or {}
+
+        # Validate
+        salt_masters = data.get('salt_masters', [])
+        if not isinstance(salt_masters, list):
+            return jsonify({'error': 'salt_masters must be a list'}), 400
+        minions = data.get('minions', [])
+        if not isinstance(minions, list):
+            return jsonify({'error': 'minions must be a list'}), 400
+        environment = data.get('environment', '')
+        valid_envs = {'', 'production', 'staging', 'development'}
+        if environment not in valid_envs:
+            return jsonify({'error': f'environment must be one of {sorted(valid_envs - {""})}'}), 400
+        service_restart = data.get('service_restart', '')
+        valid_services = {'', 'nginx', 'apache2', 'httpd', 'custom'}
+        if service_restart not in valid_services:
+            return jsonify({'error': f'service_restart must be one of {sorted(valid_services - {""})}'}), 400
+
+        try:
+            meta = _save_salt_metadata(domain, data)
+            return jsonify({'status': 'ok', 'metadata': meta})
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception as e:
+            logger.error(f"Failed to save Salt metadata for {domain}: {e}")
+            return jsonify({'error': 'Failed to save Salt metadata'}), 500
+
+    # ------------------------------------------------------------------ #
+    #  POST /api/webhook/cert-renewed                                     #
+    # ------------------------------------------------------------------ #
+
+    @app.route('/api/webhook/cert-renewed', methods=['POST'])
+    @auth_manager.require_role('viewer')
+    def webhook_cert_renewed():
+        """Webhook endpoint: accepts cert_name, returns Salt metadata for external scripts."""
+        data = request.get_json(silent=True) or {}
+        cert_name = (data.get('cert_name') or '').strip()
+        if not cert_name:
+            return jsonify({'error': 'cert_name is required'}), 400
+        meta = _load_salt_metadata(cert_name)
+        if meta is None:
+            return jsonify({'error': f'No Salt metadata found for {cert_name}'}), 404
+        return jsonify(meta)

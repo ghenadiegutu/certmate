@@ -1,0 +1,25 @@
+{
+  "masters": [
+    {
+      "id": "salt-master-1",
+      "label": "salt-master-1 (Production)",
+      "host": "192.168.1.10",
+      "port": 8000,
+      "environment": "production"
+    },
+    {
+      "id": "salt-master-2",
+      "label": "salt-master-2 (Staging)",
+      "host": "192.168.1.20",
+      "port": 8000,
+      "environment": "staging"
+    },
+    {
+      "id": "salt-master-3",
+      "label": "salt-master-3 (Development)",
+      "host": "192.168.1.30",
+      "port": 8000,
+      "environment": "development"
+    }
+  ]
+}

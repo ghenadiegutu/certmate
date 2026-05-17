@@ -276,6 +276,63 @@
     // Global variable to store all certificates
     var allCertificates = [];
 
+    // Salt metadata cache: domain -> metadata object (or null if not found)
+    var saltMetadataCache = {};
+
+    function loadSaltMetadata(domain, callback) {
+        if (saltMetadataCache.hasOwnProperty(domain)) {
+            if (callback) callback(saltMetadataCache[domain]);
+            return;
+        }
+        fetch('/api/web/certificates/' + encodeURIComponent(domain) + '/salt-metadata', {
+            credentials: 'same-origin'
+        }).then(function (r) {
+            return r.ok ? r.json() : null;
+        }).then(function (data) {
+            saltMetadataCache[domain] = data || null;
+            if (callback) callback(saltMetadataCache[domain]);
+        }).catch(function () {
+            saltMetadataCache[domain] = null;
+            if (callback) callback(null);
+        });
+    }
+
+    function saltBadgeHtml(domain) {
+        var meta = saltMetadataCache[domain];
+        if (!meta) return '<span class="text-xs text-gray-400 dark:text-gray-600">—</span>';
+        var envColors = {
+            production: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+            staging: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300',
+            development: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+        };
+        var envClass = envColors[meta.environment] || envColors.development;
+        var envLabel = meta.environment ? meta.environment.charAt(0).toUpperCase() + meta.environment.slice(1) : '—';
+        var deployIcon = meta.deploy_enabled
+            ? '<i class="fas fa-rocket text-orange-500 mr-1" title="Auto-deploy abilitato"></i>'
+            : '<i class="fas fa-pause text-gray-400 mr-1" title="Auto-deploy disabilitato"></i>';
+        return deployIcon + '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ' + envClass + '">' + escapeHtml(envLabel) + '</span>';
+    }
+
+    function saveSaltMetadata(domain, data, callback) {
+        fetch('/api/web/certificates/' + encodeURIComponent(domain) + '/salt-metadata', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(data)
+        }).then(function (r) {
+            return r.json().then(function (res) {
+                if (r.ok) {
+                    saltMetadataCache[domain] = res.metadata || data;
+                    if (callback) callback(true, res);
+                } else {
+                    if (callback) callback(false, res);
+                }
+            });
+        }).catch(function (err) {
+            if (callback) callback(false, { error: err.message });
+        });
+    }
+
     // Filter and search certificates
     function filterCertificates() {
         var searchTerm = document.getElementById('certificateSearch').value.toLowerCase();
@@ -538,6 +595,7 @@
                     <td class="px-4 py-4 whitespace-nowrap"><span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-700 dark:text-red-400 ring-1 ring-inset ring-red-500/20"><i class="fas fa-times-circle mr-1"></i>Not Found</span></td>
                     <td class="px-4 py-4 whitespace-nowrap hidden md:table-cell text-sm text-gray-500 dark:text-gray-400">\u2014</td>
                     <td class="px-4 py-4 whitespace-nowrap hidden lg:table-cell text-sm text-gray-500 dark:text-gray-400">${providerLabel || '\u2014'}</td>
+                    <td class="px-4 py-4 whitespace-nowrap hidden xl:table-cell">\u2014</td>
                     <td class="px-4 py-4 whitespace-nowrap hidden lg:table-cell">\u2014</td>
                     <td class="px-4 py-4 whitespace-nowrap text-right">
                         <div class="flex items-center justify-end gap-1">
@@ -612,6 +670,7 @@
                 <td class="px-4 py-4 whitespace-nowrap"><span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${rowRaw(statusClass)}"><i class="fas ${rowRaw(statusIcon)} mr-1"></i>${statusText}</span></td>
                 <td class="px-4 py-4 whitespace-nowrap hidden md:table-cell"><div class="text-sm text-gray-900 dark:text-white">${expiryStr}</div><div class="text-xs ${rowRaw(daysClass)}">${cert.days_until_expiry} days</div></td>
                 <td class="px-4 py-4 whitespace-nowrap hidden lg:table-cell text-sm text-gray-500 dark:text-gray-400">${rowRaw(providerLabel) || '—'}</td>
+                <td class="px-4 py-4 whitespace-nowrap hidden xl:table-cell" id="${rowRaw('salt-cell-' + escapeHtml(cert.domain).replace(/\./g, '-'))}">${rowRaw(saltBadgeHtml(cert.domain))}</td>
                 <td class="px-4 py-4 whitespace-nowrap hidden lg:table-cell">${rowRaw(deploymentBadgesHtml(cert))}</td>
                 <td class="px-4 py-4 whitespace-nowrap text-right">
                     <div class="flex items-center justify-end gap-1">
@@ -771,7 +830,23 @@
                     : '') +
                 '</div>' +
                 '</div>' +
+                // Salt Deploy Section
+                '<div class="space-y-3 border-t dark:border-gray-700 pt-4">' +
+                '<h4 class="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider">' +
+                '<i class="fas fa-terminal mr-1 text-orange-500"></i>Salt Deploy</h4>' +
+                '<div id="salt-detail-content-' + safeDomain.replace(/\./g,'-') + '">' +
+                '<div class="text-xs text-gray-400 animate-pulse"><i class="fas fa-spinner fa-spin mr-1"></i>Caricamento...</div>' +
+                '</div>' +
+                '</div>' +
                 '</div>';
+
+            // Load Salt metadata and populate the section
+            loadSaltMetadata(cert.domain, function (meta) {
+                var containerId = 'salt-detail-content-' + safeDomain.replace(/\./g, '-');
+                var container = document.getElementById(containerId);
+                if (!container) return;
+                container.innerHTML = buildSaltDetailHtml(safeDomain, meta);
+            });
         }
 
         overlay.classList.remove('hidden');
@@ -794,6 +869,93 @@
             if (content) content.innerHTML = '';
         }, 300);
     }
+
+    function buildSaltDetailHtml(safeDomain, meta) {
+        var saltMastersOptions = '';
+        // Fetch masters from cache if available (loaded on page init)
+        var mastersCache = window._saltMastersConfig || [];
+        mastersCache.forEach(function (m) {
+            var selected = meta && Array.isArray(meta.salt_masters) && meta.salt_masters.indexOf(m.id) !== -1 ? ' selected' : '';
+            saltMastersOptions += '<option value="' + escapeHtml(m.id) + '"' + selected + '>' + escapeHtml(m.label || m.id) + '</option>';
+        });
+
+        var envOptions = ['production', 'staging', 'development'].map(function (e) {
+            var sel = meta && meta.environment === e ? ' selected' : '';
+            return '<option value="' + e + '"' + sel + '>' + e.charAt(0).toUpperCase() + e.slice(1) + '</option>';
+        }).join('');
+
+        var svcOptions = ['nginx', 'apache2', 'httpd', 'custom'].map(function (s) {
+            var sel = meta && meta.service_restart === s ? ' selected' : '';
+            return '<option value="' + s + '"' + sel + '>' + s + '</option>';
+        }).join('');
+
+        var minionsVal = meta && Array.isArray(meta.minions) ? escapeHtml(meta.minions.join(', ')) : '';
+        var deployChecked = (!meta || meta.deploy_enabled !== false) ? ' checked' : '';
+
+        var formId = 'salt-form-' + safeDomain.replace(/\./g, '-');
+
+        return '<form id="' + formId + '" class="space-y-3" onsubmit="submitSaltMetadata(event, \'' + safeDomain + '\')">' +
+            '<div>' +
+            '<label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-network-wired mr-1 text-orange-400"></i>Salt Master(s)</label>' +
+            '<select name="salt_masters" multiple size="3" class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md py-1.5 px-2 text-xs focus:ring-orange-400 focus:border-orange-400">' +
+            saltMastersOptions +
+            '</select></div>' +
+            '<div>' +
+            '<label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-server mr-1 text-purple-400"></i>Minion Targets</label>' +
+            '<input type="text" name="minions" value="' + minionsVal + '" placeholder="web-01, web-02, api-04" class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md py-1.5 px-2 text-xs focus:ring-orange-400 focus:border-orange-400"></div>' +
+            '<div class="grid grid-cols-2 gap-2">' +
+            '<div><label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-layer-group mr-1 text-blue-400"></i>Ambiente</label>' +
+            '<select name="environment" class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md py-1.5 px-2 text-xs focus:ring-orange-400 focus:border-orange-400"><option value="">—</option>' + envOptions + '</select></div>' +
+            '<div><label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-redo mr-1 text-teal-400"></i>Servizio</label>' +
+            '<select name="service_restart" class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md py-1.5 px-2 text-xs focus:ring-orange-400 focus:border-orange-400"><option value="">—</option>' + svcOptions + '</select></div>' +
+            '</div>' +
+            '<label class="flex items-center text-xs text-gray-600 dark:text-gray-400 cursor-pointer gap-2">' +
+            '<input type="checkbox" name="deploy_enabled" value="true"' + deployChecked + ' class="rounded border-gray-300 text-orange-500 focus:ring-orange-400">' +
+            '<i class="fas fa-rocket text-orange-400"></i>Abilita auto-deploy Salt' +
+            '</label>' +
+            '<button type="submit" class="w-full inline-flex items-center justify-center px-4 py-2 border border-orange-300 dark:border-orange-700 shadow-sm text-xs font-medium rounded-md text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40">' +
+            '<i class="fas fa-save mr-2"></i>Salva configurazione Salt</button>' +
+            '</form>';
+    }
+
+    function submitSaltMetadata(event, safeDomain) {
+        event.preventDefault();
+        var rawDomain = safeDomain; // already safe (escapeHtml-ed), domain is the same
+        var form = event.target;
+        var mastersSelect = form.querySelector('[name="salt_masters"]');
+        var masters = mastersSelect ? Array.prototype.filter.call(mastersSelect.options, function (o) { return o.selected; }).map(function (o) { return o.value; }) : [];
+        var minionsRaw = (form.querySelector('[name="minions"]') || {}).value || '';
+        var minions = minionsRaw.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        var environment = (form.querySelector('[name="environment"]') || {}).value || '';
+        var serviceRestart = (form.querySelector('[name="service_restart"]') || {}).value || '';
+        var deployEnabled = !!(form.querySelector('[name="deploy_enabled"]') || {}).checked;
+
+        var submitBtn = form.querySelector('button[type="submit"]');
+        var origHtml = submitBtn ? submitBtn.innerHTML : '';
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Salvataggio...'; }
+
+        saveSaltMetadata(rawDomain, {
+            salt_masters: masters,
+            minions: minions,
+            environment: environment,
+            service_restart: serviceRestart,
+            deploy_enabled: deployEnabled
+        }, function (ok, res) {
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = origHtml; }
+            if (ok) {
+                showMessage('Configurazione Salt salvata per ' + rawDomain, 'success');
+                // Refresh Salt column in table
+                var domainId = rawDomain.replace(/\./g, '-');
+                var cell = document.getElementById('salt-cell-' + domainId);
+                if (cell) cell.innerHTML = saltBadgeHtml(rawDomain);
+            } else {
+                showMessage((res && res.error) || 'Errore nel salvataggio', 'error');
+            }
+        });
+    }
+
+    // Expose submitSaltMetadata globally (called from inline onsubmit)
+    window.submitSaltMetadata = submitSaltMetadata;
 
     // Close detail panel on Escape key
     document.addEventListener('keydown', function (e) {
@@ -1200,6 +1362,15 @@
             allCertificates = certificates;
             updateStats(certificates);
             displayCertificates(certificates);
+
+            // Load Salt metadata in background for each cert, then refresh the Salt column cell
+            certificates.filter(function (c) { return c.exists; }).forEach(function (cert) {
+                loadSaltMetadata(cert.domain, function () {
+                    var domainId = escapeHtml(cert.domain).replace(/\./g, '-');
+                    var cell = document.getElementById('salt-cell-' + domainId);
+                    if (cell) cell.innerHTML = saltBadgeHtml(cert.domain);
+                });
+            });
 
             // Check deployment status for all certificates after a short delay
             addDebugLog('Scheduling automatic deployment status checks...', 'info');
@@ -1699,6 +1870,18 @@
             requestBody.domain_alias = dnsAliasDomain;
         }
 
+        // Collect Salt metadata from the form (optional section)
+        var saltMastersSelect = document.getElementById('salt_masters');
+        var saltMasters = saltMastersSelect
+            ? Array.prototype.filter.call(saltMastersSelect.options, function (o) { return o.selected; }).map(function (o) { return o.value; })
+            : [];
+        var saltMinionsRaw = (document.getElementById('salt_minions') || {}).value || '';
+        var saltMinions = saltMinionsRaw.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        var saltEnvironment = (document.getElementById('salt_environment') || {}).value || '';
+        var saltService = (document.getElementById('salt_service_restart') || {}).value || '';
+        var saltDeploy = !!(document.getElementById('salt_deploy_enabled') || {}).checked;
+        var hasSaltConfig = saltMasters.length > 0 || saltMinions.length > 0 || saltEnvironment || saltService;
+
         fetch('/api/certificates/create', {
             method: 'POST',
             headers: API_HEADERS,
@@ -1707,6 +1890,18 @@
             return response.json().then(function (result) {
                 if (response.ok && result.success !== false) {
                     showMessage('Certificate created successfully for ' + domainsDisplay + '!');
+                    // Save Salt metadata if the user filled in the Salt section
+                    if (hasSaltConfig) {
+                        saveSaltMetadata(domain, {
+                            salt_masters: saltMasters,
+                            minions: saltMinions,
+                            environment: saltEnvironment,
+                            service_restart: saltService,
+                            deploy_enabled: saltDeploy
+                        }, function (ok) {
+                            if (!ok) console.warn('Salt metadata save failed after cert creation');
+                        });
+                    }
                     document.getElementById('domain').value = '';
                     document.getElementById('san_domains').value = '';
                     document.getElementById('wildcard-cert').checked = false;
