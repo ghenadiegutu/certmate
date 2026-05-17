@@ -873,55 +873,54 @@
     function buildSaltDetailHtml(safeDomain, meta) {
         var cfg = window._saltConfig || {};
 
-        // Salt Masters options — from config
-        var saltMastersOptions = '';
+        // Salt Masters — ids used as datalist suggestions
         var mastersCache = cfg.masters || window._saltMastersConfig || [];
-        mastersCache.forEach(function (m) {
-            var selected = meta && Array.isArray(meta.salt_masters) && meta.salt_masters.indexOf(m.id) !== -1 ? ' selected' : '';
-            saltMastersOptions += '<option value="' + escapeHtml(m.id) + '"' + selected + '>' + escapeHtml(m.label || m.id) + '</option>';
-        });
 
-        // Environments — from config, fallback to defaults
+        // Environments — from config, fallback to defaults (used as datalist suggestions)
         var environments = Array.isArray(cfg.environments) && cfg.environments.length ? cfg.environments : ['production', 'staging', 'development'];
-        var envOptions = environments.map(function (e) {
-            var sel = meta && meta.environment === e ? ' selected' : '';
-            return '<option value="' + escapeHtml(e) + '"' + sel + '>' + escapeHtml(e.charAt(0).toUpperCase() + e.slice(1)) + '</option>';
-        }).join('');
 
-        // Services — from config, fallback to defaults
+        // Services — from config, fallback to defaults (used as datalist suggestions)
         var services = Array.isArray(cfg.services) && cfg.services.length ? cfg.services : ['nginx', 'apache2', 'httpd', 'custom'];
-        var svcOptions = services.map(function (s) {
-            var sel = meta && meta.service_restart === s ? ' selected' : '';
-            return '<option value="' + escapeHtml(s) + '"' + sel + '>' + escapeHtml(s) + '</option>';
-        }).join('');
 
-        // Minion presets datalist
+        // Minion presets (used as datalist suggestions)
         var minionPresets = Array.isArray(cfg.minion_presets) ? cfg.minion_presets : [];
-        var datalistId = 'salt-minions-dl-' + safeDomain.replace(/\./g, '-');
-        var datalistHtml = '<datalist id="' + datalistId + '">' +
-            minionPresets.map(function (p) { return '<option value="' + escapeHtml(p) + '">'; }).join('') +
-            '</datalist>';
 
+        var mastersVal = meta && Array.isArray(meta.salt_masters) ? escapeHtml(meta.salt_masters.join(', ')) : '';
         var minionsVal = meta && Array.isArray(meta.minions) ? escapeHtml(meta.minions.join(', ')) : '';
+        var envVal = meta ? escapeHtml(meta.environment || '') : '';
+        var svcVal = meta ? escapeHtml(meta.service_restart || '') : '';
         var deployChecked = (!meta || meta.deploy_enabled !== false) ? ' checked' : '';
 
         var formId = 'salt-form-' + safeDomain.replace(/\./g, '-');
+        var dlMasters = 'dl-masters-' + safeDomain.replace(/\./g, '-');
+        var dlMinions = 'dl-minions-' + safeDomain.replace(/\./g, '-');
+        var dlEnv = 'dl-env-' + safeDomain.replace(/\./g, '-');
+        var dlSvc = 'dl-svc-' + safeDomain.replace(/\./g, '-');
+
+        var inputCls = 'block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md py-1.5 px-2 text-xs focus:ring-orange-400 focus:border-orange-400';
+
+        function dl(id, values) {
+            return '<datalist id="' + id + '">' +
+                values.map(function (v) { return '<option value="' + escapeHtml(v) + '">'; }).join('') +
+                '</datalist>';
+        }
 
         return '<form id="' + formId + '" class="space-y-3" onsubmit="submitSaltMetadata(event, \'' + safeDomain + '\')">' +
             '<div>' +
-            '<label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-network-wired mr-1 text-orange-400"></i>Salt Master(s)</label>' +
-            '<select name="salt_masters" multiple size="3" class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md py-1.5 px-2 text-xs focus:ring-orange-400 focus:border-orange-400">' +
-            saltMastersOptions +
-            '</select></div>' +
+            '<label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-network-wired mr-1 text-orange-400"></i>Salt Master(s) <span class="text-gray-400">(comma-separated)</span></label>' +
+            dl(dlMasters, mastersCache.map(function (m) { return m.id; })) +
+            '<input type="text" name="salt_masters" list="' + dlMasters + '" value="' + mastersVal + '" placeholder="salt-master-1, salt-master-2" class="' + inputCls + '"></div>' +
             '<div>' +
-            '<label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-server mr-1 text-purple-400"></i>Minion Targets</label>' +
-            datalistHtml +
-            '<input type="text" name="minions" list="' + datalistId + '" value="' + minionsVal + '" placeholder="web-01, web-02, api-04" class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md py-1.5 px-2 text-xs focus:ring-orange-400 focus:border-orange-400"></div>' +
+            '<label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-server mr-1 text-purple-400"></i>Minion Targets <span class="text-gray-400">(comma-separated)</span></label>' +
+            dl(dlMinions, minionPresets) +
+            '<input type="text" name="minions" list="' + dlMinions + '" value="' + minionsVal + '" placeholder="web-01, web-02, api-04" class="' + inputCls + '"></div>' +
             '<div class="grid grid-cols-2 gap-2">' +
             '<div><label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-layer-group mr-1 text-blue-400"></i>Ambiente</label>' +
-            '<select name="environment" class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md py-1.5 px-2 text-xs focus:ring-orange-400 focus:border-orange-400"><option value="">—</option>' + envOptions + '</select></div>' +
+            dl(dlEnv, environments) +
+            '<input type="text" name="environment" list="' + dlEnv + '" value="' + envVal + '" placeholder="production" class="' + inputCls + '"></div>' +
             '<div><label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-redo mr-1 text-teal-400"></i>Servizio</label>' +
-            '<select name="service_restart" class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md py-1.5 px-2 text-xs focus:ring-orange-400 focus:border-orange-400"><option value="">—</option>' + svcOptions + '</select></div>' +
+            dl(dlSvc, services) +
+            '<input type="text" name="service_restart" list="' + dlSvc + '" value="' + svcVal + '" placeholder="nginx" class="' + inputCls + '"></div>' +
             '</div>' +
             '<label class="flex items-center text-xs text-gray-600 dark:text-gray-400 cursor-pointer gap-2">' +
             '<input type="checkbox" name="deploy_enabled" value="true"' + deployChecked + ' class="rounded border-gray-300 text-orange-500 focus:ring-orange-400">' +
@@ -935,8 +934,8 @@
     function submitSaltMetadata(event, safeDomain) {
         event.preventDefault();
         var form = event.target;
-        var mastersSelect = form.querySelector('[name="salt_masters"]');
-        var masters = mastersSelect ? Array.prototype.filter.call(mastersSelect.options, function (o) { return o.selected; }).map(function (o) { return o.value; }) : [];
+        var mastersRaw = (form.querySelector('[name="salt_masters"]') || {}).value || '';
+        var masters = mastersRaw.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
         var minionsRaw = (form.querySelector('[name="minions"]') || {}).value || '';
         var minions = minionsRaw.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
         var environment = (form.querySelector('[name="environment"]') || {}).value || '';
@@ -1884,10 +1883,9 @@
         }
 
         // Collect Salt metadata from the form (optional section)
-        var saltMastersSelect = document.getElementById('salt_masters');
-        var saltMasters = saltMastersSelect
-            ? Array.prototype.filter.call(saltMastersSelect.options, function (o) { return o.selected; }).map(function (o) { return o.value; })
-            : [];
+        // All Salt fields are free-text inputs — split comma-separated values
+        var saltMastersRaw = (document.getElementById('salt_masters') || {}).value || '';
+        var saltMasters = saltMastersRaw.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
         var saltMinionsRaw = (document.getElementById('salt_minions') || {}).value || '';
         var saltMinions = saltMinionsRaw.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
         var saltEnvironment = (document.getElementById('salt_environment') || {}).value || '';

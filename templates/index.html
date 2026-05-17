@@ -290,16 +290,16 @@
                                     <label for="salt_masters" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                                         <i class="fas fa-network-wired mr-2 text-orange-500"></i>
                                         Salt Master(s)
-                                        <span class="font-normal text-xs text-gray-500 dark:text-gray-400 ml-1">Seleziona uno o più</span>
+                                        <span class="font-normal text-xs text-gray-500 dark:text-gray-400 ml-1">Comma-separated</span>
                                     </label>
-                                    <select id="salt_masters" name="salt_masters" multiple
-                                            class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200"
-                                            size="3">
-                                        <!-- Populated dynamically from /api/web/salt-masters -->
-                                    </select>
+                                    <datalist id="salt_masters_list"></datalist>
+                                    <input type="text" id="salt_masters" name="salt_masters"
+                                           list="salt_masters_list"
+                                           class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200 placeholder-gray-400"
+                                           placeholder="salt-master-1, salt-master-2">
                                     <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                                         <i class="fas fa-info-circle mr-1"></i>
-                                        Ctrl/Cmd + click per selezionare più master
+                                        Scrivi il nome dei master separati da virgola
                                     </p>
                                 </div>
                                 <!-- Ambiente e Servizio -->
@@ -309,20 +309,22 @@
                                             <i class="fas fa-layer-group mr-2 text-blue-500"></i>
                                             Ambiente
                                         </label>
-                                        <select id="salt_environment" name="salt_environment"
-                                                class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200">
-                                            <option value="">-- Seleziona ambiente --</option>
-                                        </select>
+                                        <datalist id="salt_environment_list"></datalist>
+                                        <input type="text" id="salt_environment" name="salt_environment"
+                                               list="salt_environment_list"
+                                               class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200 placeholder-gray-400"
+                                               placeholder="production">
                                     </div>
                                     <div>
                                         <label for="salt_service_restart" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                                             <i class="fas fa-redo mr-2 text-teal-500"></i>
                                             Servizio da riavviare
                                         </label>
-                                        <select id="salt_service_restart" name="salt_service_restart"
-                                                class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200">
-                                            <option value="">-- Seleziona servizio --</option>
-                                        </select>
+                                        <datalist id="salt_service_list"></datalist>
+                                        <input type="text" id="salt_service_restart" name="salt_service_restart"
+                                               list="salt_service_list"
+                                               class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200 placeholder-gray-400"
+                                               placeholder="nginx">
                                     </div>
                                 </div>
                             </div>
@@ -443,52 +445,32 @@
                     window._saltConfig = data;
                     window._saltMastersConfig = data.masters || [];
 
-                    // --- Salt Masters select ---
-                    var selMasters = document.getElementById('salt_masters');
-                    if (selMasters && Array.isArray(data.masters)) {
-                        selMasters.innerHTML = '';
-                        data.masters.forEach(function(m) {
-                            var opt = document.createElement('option');
-                            opt.value = m.id;
-                            opt.textContent = m.label || m.id;
-                            selMasters.appendChild(opt);
-                        });
-                    }
-
-                    // --- Environments select ---
-                    var selEnv = document.getElementById('salt_environment');
-                    if (selEnv && Array.isArray(data.environments)) {
-                        selEnv.innerHTML = '<option value="">-- Seleziona ambiente --</option>';
-                        data.environments.forEach(function(e) {
-                            var opt = document.createElement('option');
-                            opt.value = e;
-                            opt.textContent = e.charAt(0).toUpperCase() + e.slice(1);
-                            selEnv.appendChild(opt);
-                        });
-                    }
-
-                    // --- Services select ---
-                    var selSvc = document.getElementById('salt_service_restart');
-                    if (selSvc && Array.isArray(data.services)) {
-                        selSvc.innerHTML = '<option value="">-- Seleziona servizio --</option>';
-                        data.services.forEach(function(s) {
-                            var opt = document.createElement('option');
-                            opt.value = s;
-                            opt.textContent = s;
-                            selSvc.appendChild(opt);
-                        });
-                    }
-
-                    // --- Minion presets datalist ---
-                    var dl = document.getElementById('salt_minions_list');
-                    if (dl && Array.isArray(data.minion_presets)) {
+                    // Helper: fill a datalist with values
+                    function fillDatalist(id, values) {
+                        var dl = document.getElementById(id);
+                        if (!dl || !Array.isArray(values)) return;
                         dl.innerHTML = '';
-                        data.minion_presets.forEach(function(p) {
+                        values.forEach(function(v) {
                             var opt = document.createElement('option');
-                            opt.value = p;
+                            opt.value = v;
                             dl.appendChild(opt);
                         });
                     }
+
+                    // Salt Masters datalist — id values as suggestions
+                    var masterIds = Array.isArray(data.masters)
+                        ? data.masters.map(function(m) { return m.id; })
+                        : [];
+                    fillDatalist('salt_masters_list', masterIds);
+
+                    // Environments datalist
+                    fillDatalist('salt_environment_list', data.environments || []);
+
+                    // Services datalist
+                    fillDatalist('salt_service_list', data.services || []);
+
+                    // Minion presets datalist
+                    fillDatalist('salt_minions_list', data.minion_presets || []);
                 })
                 .catch(function() {});
         })();
