@@ -11,6 +11,7 @@ def register_settings_routes(app, managers, require_web_auth, auth_manager,
     """Register settings-related routes"""
     auth_manager_ref = auth_manager
     deploy_manager = managers.get('deployer')
+    salt_manager = managers.get('salt')
     audit_logger = managers.get('audit')
     file_ops = managers.get('file_ops')
 
@@ -485,3 +486,47 @@ def register_settings_routes(app, managers, require_web_auth, auth_manager,
         except Exception as e:
             logger.error(f"Failed to get deploy history: {e}")
             return jsonify({'error': 'Failed to get deploy history'}), 500
+
+    # ------------------------------------------------------------------ #
+    #  Salt settings                                                       #
+    # ------------------------------------------------------------------ #
+
+    @app.route('/api/salt/config', methods=['GET', 'POST'])
+    @auth_manager.require_role('admin')
+    def salt_config():
+        """Get or update Salt configuration."""
+        if not salt_manager:
+            return jsonify({'error': 'Salt manager not available'}), 503
+        if request.method == 'GET':
+            return jsonify(salt_manager.get_config())
+        data = request.get_json(silent=True) or {}
+        ok, err = salt_manager.save_config(data)
+        if not ok:
+            return jsonify({'error': err}), 400
+        return jsonify({'status': 'ok'})
+
+    @app.route('/api/salt/test-master', methods=['POST'])
+    @auth_manager.require_role('admin')
+    def salt_test_master():
+        """Test connectivity to a Salt master."""
+        if not salt_manager:
+            return jsonify({'error': 'Salt manager not available'}), 503
+        master = request.get_json(silent=True) or {}
+        for field in ('id', 'host', 'port', 'username', 'password'):
+            if not master.get(field):
+                return jsonify({'error': f"'{field}' is required"}), 400
+        result = salt_manager.test_master(master)
+        return jsonify(result)
+
+    @app.route('/api/salt/deploy/<string:domain>', methods=['POST'])
+    @auth_manager.require_role('operator')
+    def salt_deploy_cert(domain):
+        """Manually trigger Salt deploy for a certificate."""
+        if not salt_manager:
+            return jsonify({'error': 'Salt manager not available'}), 503
+        try:
+            results = salt_manager.deploy_cert(domain)
+            return jsonify({'status': 'ok', 'results': results})
+        except Exception as e:
+            logger.error(f"Salt manual deploy failed for {domain}: {e}")
+            return jsonify({'error': str(e)}), 500

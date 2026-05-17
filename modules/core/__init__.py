@@ -24,6 +24,7 @@ from .csr_handler import CSRHandler
 from .client_certificates import ClientCertificateManager
 from .ocsp_crl import OCSPResponder, CRLManager
 from .audit import AuditLogger
+from .salt_manager import SaltManager
 from .rate_limit import RateLimitConfig, SimpleRateLimiter, rate_limit_decorator
 from .structured_logging import (
     get_logger,
@@ -57,6 +58,7 @@ __all__ = [
     'OCSPResponder',
     'CRLManager',
     'AuditLogger',
+    'SaltManager',
     'RateLimitConfig',
     'SimpleRateLimiter',
     'rate_limit_decorator',

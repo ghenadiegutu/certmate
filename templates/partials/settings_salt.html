@@ -1,0 +1,285 @@
+<!-- TAB: Salt Deploy -->
+<div x-show="tab === 'salt'" x-cloak
+     class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mt-6"
+     x-data="saltSettings()" x-init="loadConfig()">
+
+    <h3 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center mb-6">
+        <i class="fas fa-terminal mr-2 text-orange-500"></i>
+        Salt Deploy Settings
+    </h3>
+
+    <!-- Master toggle -->
+    <div class="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg mb-6">
+        <div>
+            <p class="font-medium text-gray-900 dark:text-white">Enable Salt Deploy</p>
+            <p class="text-sm text-gray-500 dark:text-gray-400">Deploy certificates automatically via Salt Stack after renewal</p>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" x-model="config.enabled" class="sr-only peer" title="Enable Salt deploy">
+            <div class="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-orange-400 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-500 peer-checked:bg-orange-500"></div>
+        </label>
+    </div>
+
+    <div x-show="config.enabled" class="space-y-6">
+
+        <!-- Expiry alert threshold -->
+        <div class="p-4 bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-800/40 rounded-lg">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <i class="fas fa-bell mr-1.5 text-yellow-500"></i>
+                Expiry Alert Threshold (days)
+            </label>
+            <div class="flex items-center gap-3">
+                <input type="number" x-model.number="config.expiry_alert_days" min="1" max="90"
+                       class="w-24 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                    Send email alert when a certificate expires within this many days. Checked daily at 08:00.
+                </p>
+            </div>
+        </div>
+
+        <!-- CertMate URL for minions -->
+        <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <i class="fas fa-link mr-1.5 text-blue-500"></i>
+                CertMate URL (reachable by minions)
+            </label>
+            <input type="text" x-model="config.certmate_minion_url"
+                   placeholder="http://192.168.1.100:8000"
+                   class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                The URL that Salt minions use to download certificates from CertMate. Must be reachable from all minions.
+            </p>
+        </div>
+
+        <!-- CertMate API token for minions -->
+        <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <i class="fas fa-key mr-1.5 text-indigo-500"></i>
+                CertMate API Token (for minion downloads)
+            </label>
+            <input type="password" x-model="config.certmate_api_token"
+                   placeholder="cm_..."
+                   class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                API token used by the Salt state to authenticate certificate downloads. Viewer role is sufficient.
+            </p>
+        </div>
+
+        <!-- Salt Masters list -->
+        <div>
+            <div class="flex items-center justify-between mb-3">
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <i class="fas fa-network-wired mr-1.5 text-orange-500"></i>
+                    Salt Masters
+                </label>
+                <button type="button" @click="addMaster()"
+                        class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md border border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40">
+                    <i class="fas fa-plus mr-1"></i>Add Master
+                </button>
+            </div>
+
+            <div class="space-y-3">
+                <template x-for="(master, idx) in config.masters" :key="idx">
+                    <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                        <!-- Master header -->
+                        <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700/30 cursor-pointer"
+                             @click="master._open = !master._open">
+                            <div class="flex items-center gap-2">
+                                <i class="fas fa-server text-orange-400 text-sm"></i>
+                                <span class="text-sm font-medium text-gray-900 dark:text-white"
+                                      x-text="master.label || master.id || 'New Master'"></span>
+                                <span x-show="master.environment"
+                                      class="px-2 py-0.5 text-xs rounded-full bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300"
+                                      x-text="master.environment"></span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button type="button" @click.stop="testMaster(idx)"
+                                        :disabled="testingIdx === idx"
+                                        class="px-2 py-1 text-xs rounded border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50">
+                                    <i class="fas" :class="testingIdx === idx ? 'fa-spinner fa-spin' : 'fa-plug'"></i>
+                                    <span x-text="testingIdx === idx ? 'Testing...' : 'Test'"></span>
+                                </button>
+                                <button type="button" @click.stop="removeMaster(idx)"
+                                        class="p-1 text-red-400 hover:text-red-600 dark:hover:text-red-300">
+                                    <i class="fas fa-trash-alt text-xs"></i>
+                                </button>
+                                <i class="fas fa-chevron-down text-gray-400 text-xs transition"
+                                   :class="master._open ? 'rotate-180' : ''"></i>
+                            </div>
+                        </div>
+
+                        <!-- Test result -->
+                        <div x-show="master._testResult" x-cloak
+                             :class="master._testResult && master._testResult.ok
+                                ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
+                                : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'"
+                             class="px-4 py-2 text-xs border-t border-gray-100 dark:border-gray-700">
+                            <template x-if="master._testResult && master._testResult.ok">
+                                <span><i class="fas fa-check-circle mr-1"></i>Connected —
+                                    <span x-text="master._testResult.count"></span> minion(s) visible</span>
+                            </template>
+                            <template x-if="master._testResult && !master._testResult.ok">
+                                <span><i class="fas fa-times-circle mr-1"></i><span x-text="master._testResult.error"></span></span>
+                            </template>
+                        </div>
+
+                        <!-- Master form fields -->
+                        <div x-show="master._open" x-cloak class="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">ID <span class="text-red-500">*</span></label>
+                                <input type="text" x-model="master.id" placeholder="salt-master-prod"
+                                       class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Label</label>
+                                <input type="text" x-model="master.label" placeholder="Production Master"
+                                       class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Host <span class="text-red-500">*</span></label>
+                                <input type="text" x-model="master.host" placeholder="192.168.1.10"
+                                       class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Port <span class="text-red-500">*</span></label>
+                                <input type="number" x-model.number="master.port" placeholder="8080"
+                                       class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Username <span class="text-red-500">*</span></label>
+                                <input type="text" x-model="master.username" placeholder="saltapi"
+                                       class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Password <span class="text-red-500">*</span></label>
+                                <input type="password" x-model="master.password"
+                                       class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Auth Method</label>
+                                <select x-model="master.eauth"
+                                        class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                                    <option value="pam">PAM</option>
+                                    <option value="ldap">LDAP</option>
+                                    <option value="file">File</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Environment</label>
+                                <input type="text" x-model="master.environment" placeholder="production"
+                                       class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <div x-show="config.masters.length === 0"
+                     class="text-center py-6 text-gray-400 dark:text-gray-500 text-sm border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
+                    <i class="fas fa-network-wired text-2xl mb-2 block"></i>
+                    No Salt Masters configured. Click "Add Master" to get started.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save button -->
+    <div class="flex items-center justify-between mt-6 pt-4 border-t border-gray-100 dark:border-white/5">
+        <p x-show="saveMsg" x-cloak
+           :class="saveOk ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'"
+           class="text-sm" x-text="saveMsg"></p>
+        <button type="button" @click="saveConfig()"
+                :disabled="saving"
+                class="ml-auto inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-400">
+            <i class="fas" :class="saving ? 'fa-spinner fa-spin' : 'fa-save'" class="mr-2"></i>
+            <span class="ml-2" x-text="saving ? 'Saving...' : 'Save Salt Settings'"></span>
+        </button>
+    </div>
+</div>
+
+<script>
+function saltSettings() {
+    return {
+        config: { enabled: false, masters: [], expiry_alert_days: 7, certmate_minion_url: '', certmate_api_token: '' },
+        saving: false,
+        saveMsg: '',
+        saveOk: false,
+        testingIdx: null,
+
+        loadConfig() {
+            fetch('/api/salt/config', { credentials: 'same-origin' })
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (!data) return;
+                    if (!Array.isArray(data.masters)) data.masters = [];
+                    data.masters.forEach(m => { m._open = false; m._testResult = null; });
+                    this.config = { expiry_alert_days: 7, certmate_minion_url: '', certmate_api_token: '', ...data };
+                })
+                .catch(() => {});
+        },
+
+        addMaster() {
+            this.config.masters.push({
+                id: '', label: '', host: '', port: 8080,
+                username: 'saltapi', password: '', eauth: 'pam',
+                environment: 'production', _open: true, _testResult: null
+            });
+        },
+
+        removeMaster(idx) {
+            this.config.masters.splice(idx, 1);
+        },
+
+        testMaster(idx) {
+            this.testingIdx = idx;
+            const master = this.config.masters[idx];
+            fetch('/api/salt/test-master', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(master)
+            })
+            .then(r => r.json())
+            .then(result => {
+                this.config.masters[idx]._testResult = result;
+                this.testingIdx = null;
+            })
+            .catch(() => {
+                this.config.masters[idx]._testResult = { ok: false, error: 'Request failed' };
+                this.testingIdx = null;
+            });
+        },
+
+        saveConfig() {
+            this.saving = true;
+            this.saveMsg = '';
+            // Strip internal UI state before saving
+            const payload = JSON.parse(JSON.stringify(this.config));
+            payload.masters.forEach(m => { delete m._open; delete m._testResult; });
+
+            fetch('/api/salt/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(payload)
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.saving = false;
+                if (data.status === 'ok') {
+                    this.saveOk = true;
+                    this.saveMsg = '✓ Salt settings saved';
+                } else {
+                    this.saveOk = false;
+                    this.saveMsg = data.error || 'Save failed';
+                }
+                setTimeout(() => { this.saveMsg = ''; }, 4000);
+            })
+            .catch(() => {
+                this.saving = false;
+                this.saveOk = false;
+                this.saveMsg = 'Network error';
+            });
+        }
+    };
+}
+</script>

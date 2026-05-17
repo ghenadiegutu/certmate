@@ -1,19 +1,19 @@
 # Salt Deploy — Guida Completa
 
-Questo documento descrive come CertMate distribuisce automaticamente i certificati SSL sui server tramite **Salt Stack**, partendo dalla creazione del certificato fino al riavvio del servizio web sul minion.
+CertMate integra nativamente Salt Stack per distribuire automaticamente i certificati SSL ai server web dopo ogni rinnovo o creazione.
 
 ---
 
 ## Indice
 
 - [Architettura](#architettura)
-- [Componenti](#componenti)
 - [Flusso completo](#flusso-completo)
-- [File e cartelle chiave](#file-e-cartelle-chiave)
-- [Configurazione](#configurazione)
+- [Configurazione CertMate](#configurazione-certmate)
+- [Configurazione Salt Master](#configurazione-salt-master)
+- [Salt State](#salt-state)
+- [Salt Metadata per certificato](#salt-metadata-per-certificato)
+- [Alert di scadenza email](#alert-di-scadenza-email)
 - [Setup ambiente di test con LXC](#setup-ambiente-di-test-con-lxc)
-- [Avvio dei servizi](#avvio-dei-servizi)
-- [Test manuale](#test-manuale)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -21,241 +21,240 @@ Questo documento descrive come CertMate distribuisce automaticamente i certifica
 ## Architettura
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                        TUO PC / SERVER                         │
-│                                                                │
-│  ┌─────────────────────┐        ┌──────────────────────────┐  │
-│  │   CertMate          │        │  salt_webhook_server.py  │  │
-│  │   (Docker :8000)    │──POST──▶  (Host :5001)            │  │
-│  │                     │        │                          │  │
-│  │  - Gestisce cert    │        │  - Riceve notifiche      │  │
-│  │  - Salva metadata   │        │  - Chiama salt_deploy.py │  │
-│  │  - Deploy hooks     │        └──────────┬───────────────┘  │
-│  └─────────────────────┘                   │                  │
-│                                      Salt API call            │
-│  ┌─────────────────────────────────────────▼───────────────┐  │
-│  │  LXC: salt-master (10.46.138.223)                       │  │
-│  │  - Salt Master                                          │  │
-│  │  - salt-api CherryPy (:8080)                            │  │
-│  └─────────────────────────────────────────┬───────────────┘  │
-│                                     state.apply               │
-│  ┌─────────────────────────────────────────▼───────────────┐  │
-│  │  LXC: web-01 (10.46.138.7)                              │  │
-│  │  - Salt Minion                                          │  │
-│  │  - nginx                                                │  │
-│  │  - Riceve il cert → /etc/nginx/ssl/<domain>/            │  │
-│  └─────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        PRODUZIONE                               │
+│                                                                 │
+│  ┌────────────────────────────────┐                             │
+│  │   CertMate VM (Docker)         │                             │
+│  │   - SaltManager (integrato)    │──────────────────────────┐  │
+│  │   - EventBus listener          │  salt-api HTTP call      │  │
+│  │   - APScheduler (expiry alert) │                          ▼  │
+│  └────────────────────────────────┘                             │
+│                                      ┌──────────────────────────┤
+│                                      │  Salt Master VM          │
+│                                      │  - salt-master           │
+│                                      │  - salt-api (:8080)      │
+│                                      └────────────┬─────────────┤
+│                                           state.apply           │
+│                                      ┌────────────▼─────────────┤
+│                                      │  Minion VMs (N)          │
+│                                      │  - nginx / apache2       │
+│                                      │  - /etc/ssl/<domain>/    │
+│                                      └──────────────────────────┘
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-> **Nota reti:** Docker e LXC usano bridge separati (`docker0` e `lxdbr0`), per questo serve il `salt_webhook_server.py` sull'host come relay.
-
----
-
-## Componenti
-
-### 1. CertMate (Docker)
-- Gestisce il ciclo di vita dei certificati SSL
-- Salva i **Salt metadata** per ogni certificato (`salt_metadata.json`)
-- Quando un cert viene rinnovato/creato, esegue i **deploy hooks** configurati
-- Espone il webhook endpoint: `POST /api/webhook/cert-renewed`
-
-### 2. salt_webhook_server.py (Host)
-- Piccolo HTTP server Python (porta 5001)
-- Ascolta su `0.0.0.0:5001` — raggiungibile da Docker via `172.17.0.1:5001`
-- Riceve `POST /deploy` con il dominio
-- Chiama `salt_deploy.py` in un thread separato (risposta immediata 202)
-
-### 3. salt_deploy.py (Host)
-- Script Python che orchestra il deploy Salt
-- Legge i metadata dal webhook di CertMate
-- Fa login su salt-api
-- Chiama `state.apply` sui minion configurati
-
-### 4. Salt Master + salt-api (LXC)
-- Salt Master che gestisce i minion
-- salt-api (CherryPy) espone REST API sulla porta 8080
-- Autenticazione PAM con utente `saltapi`
-
-### 5. Salt State: `certmate.deploy_cert` (sul Master)
-- Scarica il certificato ZIP da CertMate
-- Estrae i file in `/etc/nginx/ssl/<domain>/`
-- Imposta i permessi corretti sulla chiave privata
-- Esegue reload del servizio configurato (nginx, apache2, ecc.)
-
-### 6. Minion (LXC web-01)
-- Riceve il comando dal master
-- Esegue lo state (download cert + reload nginx)
-- Risultato riportato al master
+**Nessun relay esterno richiesto.** La VM CertMate chiama direttamente l'API REST del Salt Master.
 
 ---
 
 ## Flusso completo
 
 ```
-PASSO 1 — Utente configura il certificato in CertMate UI
-  └─ Compila sezione "Salt Deploy Configuration":
-       • Salt Master(s): salt-master-prod
-       • Minion Targets: web-01, web-02
-       • Ambiente: production
-       • Servizio: nginx
-       • Auto-deploy: ✓
+PASSO 1 — Certificato rinnovato o creato
+  └─ APScheduler (02:00) rinnova il certificato
+  └─ EventBus emette: certificate_renewed / certificate_created
 
-PASSO 2 — CertMate salva salt_metadata.json
-  └─ File: certificates/<domain>/salt_metadata.json
-  └─ Contenuto:
-     {
-       "cert_name": "example.com",
-       "salt_masters": ["salt-master-prod"],
-       "minions": ["web-01", "web-02"],
-       "service_restart": "nginx",
-       "environment": "production",
-       "deploy_enabled": true
-     }
+PASSO 2 — SaltManager riceve l'evento
+  └─ Legge salt_metadata.json dalla directory del certificato
+  └─ Verifica che deploy_enabled = true e che ci siano minion
 
-PASSO 3 — Cert rinnovato (o creato)
-  └─ APScheduler alle 02:00 controlla le scadenze
-  └─ Esegue certbot per rinnovare
-  └─ Triggera evento: certificate_renewed
+PASSO 3 — Autenticazione su salt-api
+  └─ POST http://<salt-master>:8080/login
+  └─ Token in cache per 1 ora, rinnovo automatico
 
-PASSO 4 — Deploy hook eseguito da CertMate
-  └─ Comando: /app/scripts/hook_salt_deploy.sh
-  └─ Variabili iniettate:
-       CERTMATE_DOMAIN=example.com
-       CERTMATE_CERT_PATH=/app/certificates/example.com/cert.pem
-       CERTMATE_KEY_PATH=/app/certificates/example.com/privkey.pem
-       CERTMATE_EVENT=certificate_renewed
+PASSO 4 — Esecuzione state.apply
+  └─ POST http://<salt-master>:8080
+  └─ client: local, tgt: ["web-01", "web-02"], fun: state.apply
+  └─ Pillar: dominio, URL CertMate, token, servizio da riavviare
 
-PASSO 5 — hook_salt_deploy.sh → webhook server
-  └─ POST http://172.17.0.1:5001/deploy
-  └─ Body: domain=example.com
-  └─ Risposta immediata: {"status":"accepted"}
-
-PASSO 6 — salt_webhook_server.py riceve e delega
-  └─ Avvia thread: salt_deploy.py example.com
-
-PASSO 7 — salt_deploy.py legge i metadata
-  └─ POST http://localhost:8000/api/webhook/cert-renewed
-  └─ Body: {"cert_name": "example.com"}
-  └─ Risposta: salt_metadata.json completo
-
-PASSO 8 — salt_deploy.py si autentica su salt-api
-  └─ POST http://10.46.138.223:8080/login
-  └─ Ottiene token
-
-PASSO 9 — salt_deploy.py esegue state.apply
-  └─ POST http://10.46.138.223:8080
-  └─ client: local, tgt: ["web-01"], fun: state.apply
-  └─ Pillar: dominio, URL CertMate, token, servizio
-
-PASSO 10 — Salt Master invia il comando al minion
-  └─ web-01 esegue certmate.deploy_cert state
-
-PASSO 11 — Minion scarica e deploya il certificato
-  └─ curl → GET /api/certificates/example.com/download
-  └─ unzip → /etc/nginx/ssl/example.com/
+PASSO 5 — Minion esegue certmate.deploy_cert
+  └─ curl → GET /api/certificates/<domain>/download (da CertMate)
+  └─ unzip → /etc/nginx/ssl/<domain>/
   └─ chmod 600 privkey.pem
   └─ systemctl reload nginx
 
-PASSO 12 — Risultato riportato al master e loggato
-  └─ salt_deploy.py logga: "web-01: OK (5 cambiamenti)"
+PASSO 6 — Risultato
+  └─ SaltManager riceve esito per ogni minion
+  └─ Log in CertMate: ok/failed per minion
 ```
 
 ---
 
-## File e cartelle chiave
+## Configurazione CertMate
 
-```
-certmate/
-├── certificates/
-│   └── <domain>/
-│       ├── cert.pem
-│       ├── chain.pem
-│       ├── fullchain.pem
-│       ├── privkey.pem
-│       └── salt_metadata.json          ← metadata Salt per questo cert
-│
-├── config/
-│   └── salt_masters.json               ← elenco Salt Masters configurati
-│
-└── scripts/
-    ├── salt_deploy.py                  ← script deploy (gira sull'host)
-    ├── salt_webhook_server.py          ← relay server (gira sull'host)
-    ├── hook_salt_deploy.sh             ← chiamato da CertMate deploy hook
-    └── salt_states/
-        └── certmate/
-            └── deploy_cert.sls         ← Salt state (sul master)
+Vai su **Settings → Salt** nella UI di CertMate.
+
+| Campo | Descrizione |
+|---|---|
+| **Enable Salt Deploy** | Attiva/disattiva il deploy automatico globale |
+| **Expiry Alert Threshold** | Giorni prima della scadenza per inviare alert email (default: 7) |
+| **CertMate URL (for minions)** | URL raggiungibile dai minion per scaricare i cert (es. `http://192.168.1.100:8000`) |
+| **CertMate API Token** | Token con ruolo `viewer` per autenticare i download dei minion |
+
+### Salt Masters
+
+Per ogni master configura:
+
+| Campo | Esempio |
+|---|---|
+| **ID** | `salt-master-prod` |
+| **Label** | `Production Master` |
+| **Host** | `10.46.138.223` |
+| **Port** | `8080` |
+| **Username** | `saltapi` |
+| **Password** | `***` |
+| **Auth Method** | `pam` |
+| **Environment** | `production` |
+
+Usa il pulsante **Test** per verificare la connettività prima di salvare.
+
+---
+
+## Configurazione Salt Master
+
+### 1. Installa salt-api
+
+```bash
+apt install salt-api
 ```
 
-**Sul Salt Master (LXC):**
-```
-/srv/salt/
-└── certmate/
-    └── deploy_cert.sls                 ← copiato da scripts/salt_states/
+### 2. `/etc/salt/master.d/api.conf`
+
+```yaml
+rest_cherrypy:
+  port: 8080
+  disable_ssl: true
+
+netapi_enable_clients:
+  - local
+  - runner
+  - wheel
 ```
 
-**Sul Minion dopo il deploy:**
+> **Nota Salt 3008+**: `netapi_enable_clients` è obbligatorio, altrimenti ricevi `Client disabled: local`.
+
+### 3. Utente saltapi con accesso limitato
+
+```bash
+useradd -r -s /bin/bash saltapi
+echo "saltapi:PASSWORD" | chpasswd
+usermod -a -G shadow salt   # necessario per PAM in alcuni ambienti
 ```
-/etc/nginx/ssl/
-└── <domain>/
-    ├── cert.pem
-    ├── chain.pem
-    ├── fullchain.pem
-    └── privkey.pem  (chmod 600)
+
+### 4. `/etc/salt/master.d/acl.conf` — ACL limitata
+
+```yaml
+external_auth:
+  pam:
+    saltapi:
+      - '*':
+          - state.apply
+          - test.ping
+```
+
+L'utente `saltapi` può solo applicare stati e fare ping — nessun accesso shell o comandi di sistema.
+
+### 5. Riavvia i servizi
+
+```bash
+systemctl restart salt-master salt-api
 ```
 
 ---
 
-## Configurazione
+## Salt State
 
-### config/salt_masters.json
+Posiziona questo file su ogni Salt Master in `/srv/salt/certmate/deploy_cert.sls`:
 
-Elenco dei Salt Master disponibili. Ogni master ha:
+```yaml
+# Scarica e installa il certificato da CertMate
+{% set domain = pillar.get('certmate_domain', '') %}
+{% set certmate_url = pillar.get('certmate_url', 'http://localhost:8000') %}
+{% set certmate_token = pillar.get('certmate_token', '') %}
+{% set service = pillar.get('service_restart', 'nginx') %}
+{% set cert_dir = '/etc/ssl/certs/' + domain %}
+
+create_cert_dir:
+  file.directory:
+    - name: {{ cert_dir }}
+    - makedirs: True
+    - mode: '0755'
+
+download_cert_zip:
+  cmd.run:
+    - name: >
+        curl -fsSL -H "Authorization: Bearer {{ certmate_token }}"
+        "{{ certmate_url }}/api/certificates/{{ domain }}/download"
+        -o /tmp/cert_{{ domain }}.zip
+    - require:
+      - file: create_cert_dir
+
+extract_cert:
+  cmd.run:
+    - name: unzip -o /tmp/cert_{{ domain }}.zip -d {{ cert_dir }}
+    - require:
+      - cmd: download_cert_zip
+
+set_key_permissions:
+  file.managed:
+    - name: {{ cert_dir }}/privkey.pem
+    - mode: '0600'
+    - require:
+      - cmd: extract_cert
+
+reload_service:
+  service.running:
+    - name: {{ service }}
+    - reload: True
+    - require:
+      - file: set_key_permissions
+```
+
+---
+
+## Salt Metadata per certificato
+
+Ogni certificato può avere un file `salt_metadata.json` nella sua directory (`certificates/<domain>/`). Questo file indica a CertMate dove deployare.
 
 ```json
 {
-  "masters": [
-    {
-      "id": "salt-master-prod",        // ID usato nei metadata
-      "label": "salt-master-prod (Production)",
-      "host": "10.46.138.223",         // IP raggiungibile dall'host
-      "port": 8080,                    // Porta salt-api
-      "environment": "production"
-    }
-  ],
-  "environments": ["production", "staging", "development"],
-  "services":     ["nginx", "apache2", "httpd", "haproxy", "traefik"]
+  "cert_name": "example.com",
+  "salt_masters": ["salt-master-prod"],
+  "minions": ["web-01", "web-02"],
+  "service_restart": "nginx",
+  "environment": "production",
+  "deploy_enabled": true
 }
 ```
 
-### Variabili d'ambiente per salt_deploy.py / salt_webhook_server.py
+Il file viene creato/aggiornato tramite l'API:
 
-| Variabile | Descrizione | Default |
-|---|---|---|
-| `CERTMATE_URL` | URL CertMate raggiungibile dall'host | `http://localhost:8000` |
-| `CERTMATE_TOKEN` | API token CertMate (ruolo viewer+) | — |
-| `SALT_API_USER` | Utente salt-api | `saltapi` |
-| `SALT_API_PASSWORD` | Password salt-api | — |
-| `SALT_API_EAUTH` | Metodo auth (pam, ldap, file) | `pam` |
-| `WEBHOOK_PORT` | Porta del relay server | `5001` |
+```bash
+# Salva metadati
+curl -X POST http://localhost:8000/api/web/certificates/example.com/salt-metadata \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"salt_masters":["salt-master-prod"],"minions":["web-01"],"service_restart":"nginx","deploy_enabled":true}'
 
-### Deploy hook in CertMate (data/settings.json)
-
-```json
-"deploy_hooks": {
-  "enabled": true,
-  "global_hooks": [
-    {
-      "id": "salt-deploy",
-      "name": "Salt Deploy",
-      "command": "/app/scripts/hook_salt_deploy.sh",
-      "enabled": true,
-      "on_events": ["certificate_renewed", "certificate_created"],
-      "timeout": 15
-    }
-  ]
-}
+# Trigger deploy manuale
+curl -X POST http://localhost:8000/api/salt/deploy/example.com \
+  -H "Authorization: Bearer <token>"
 ```
+
+---
+
+## Alert di scadenza email
+
+SaltManager esegue un controllo giornaliero alle **08:00** tramite APScheduler.
+
+- Legge la soglia `expiry_alert_days` dalla configurazione Salt (default: 7 giorni)
+- Scansiona tutti i certificati in `settings.json → domains`
+- Invia una notifica email tramite il sistema SMTP di CertMate per ogni certificato che scade entro la soglia
+
+Per ricevere gli alert è necessario:
+1. Avere SMTP configurato in **Settings → Notifications**
+2. Avere Salt abilitato con una soglia impostata
 
 ---
 
@@ -264,243 +263,81 @@ Elenco dei Salt Master disponibili. Ogni master ha:
 ### Prerequisiti
 
 ```bash
-sudo snap install lxd
-sudo lxd init --auto
-sudo usermod -aG lxd $USER
-newgrp lxd
+sudo apt install lxd
+sudo lxd init --minimal
 ```
 
 ### Crea i container
 
 ```bash
-lxc launch ubuntu:24.04 salt-master
-lxc launch ubuntu:24.04 web-01
-```
-
-### Installa Salt Master
-
-```bash
+# Salt Master
+lxc launch ubuntu:22.04 salt-master
 lxc exec salt-master -- bash -c "
+  apt update && apt install -y curl gnupg2
   curl -fsSL https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public \
-    | gpg --dearmor -o /etc/apt/keyrings/salt-archive-keyring.gpg
-  echo 'deb [signed-by=/etc/apt/keyrings/salt-archive-keyring.gpg arch=amd64] \
-    https://packages.broadcom.com/artifactory/saltproject-deb stable main' \
+    | gpg --dearmor -o /usr/share/keyrings/salt-archive-keyring.gpg
+  echo 'deb [signed-by=/usr/share/keyrings/salt-archive-keyring.gpg] \
+    https://packages.broadcom.com/artifactory/saltproject-deb/ stable main' \
     > /etc/apt/sources.list.d/salt.list
-  apt-get update -q
-  apt-get install -y salt-master salt-api
-  /opt/saltstack/salt/bin/pip install cherrypy
+  apt update && apt install -y salt-master salt-api
 "
-```
 
-### Configura salt-api
-
-```bash
-lxc exec salt-master -- bash -c "
-  useradd -s /bin/bash saltapi
-  echo 'saltapi:SaltApi2026!' | chpasswd
-  usermod -a -G shadow salt
-
-  cat > /etc/salt/master.d/api.conf << 'EOF'
-external_auth:
-  pam:
-    saltapi:
-      - '.*'
-      - '@wheel'
-      - '@runner'
-rest_cherrypy:
-  port: 8080
-  disable_ssl: true
-netapi_enable_clients:
-  - local
-  - runner
-  - wheel
-EOF
-
-  systemctl restart salt-master salt-api
-"
-```
-
-### Installa Salt Minion + nginx
-
-```bash
-MASTER_IP=$(lxc list salt-master --format csv -c 4 | cut -d' ' -f1)
-
+# Minion web-01
+lxc launch ubuntu:22.04 web-01
 lxc exec web-01 -- bash -c "
-  curl -fsSL https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public \
-    | gpg --dearmor -o /etc/apt/keyrings/salt-archive-keyring.gpg
-  echo 'deb [signed-by=/etc/apt/keyrings/salt-archive-keyring.gpg arch=amd64] \
-    https://packages.broadcom.com/artifactory/saltproject-deb stable main' \
-    > /etc/apt/sources.list.d/salt.list
-  apt-get update -q
-  apt-get install -y salt-minion nginx unzip
+  # (stesso setup repo)
+  apt install -y salt-minion nginx curl unzip
+"
+```
 
-  cat > /etc/salt/minion << EOF
-master: $MASTER_IP
-id: web-01
-EOF
+### Configura il minion
+
+```bash
+lxc exec web-01 -- bash -c "
+  echo 'master: <IP-SALT-MASTER>' > /etc/salt/minion
   systemctl restart salt-minion
 "
 
-# Accetta la chiave del minion
-sleep 10
+# Accetta la chiave sul master
 lxc exec salt-master -- salt-key -A -y
-```
-
-### Copia lo Salt state
-
-```bash
-lxc exec salt-master -- mkdir -p /srv/salt/certmate
-lxc file push scripts/salt_states/certmate/deploy_cert.sls \
-    salt-master/srv/salt/certmate/deploy_cert.sls
 ```
 
 ### Verifica
 
 ```bash
-lxc exec salt-master -- salt 'web-01' test.ping
-# web-01: True
-```
-
----
-
-## Avvio dei servizi
-
-```bash
-cd /path/to/certmate
-
-# 1. CertMate Docker
-docker start certmate-test
-# oppure primo avvio:
-# docker run -d --name certmate-test -p 8000:8000 \
-#   -v $(pwd)/data:/app/data \
-#   -v $(pwd)/certificates:/app/certificates \
-#   -v $(pwd)/config:/app/config \
-#   -v $(pwd)/scripts:/app/scripts \
-#   certmate-local:latest
-
-# 2. Salt webhook relay server (host)
-source .venv/bin/activate
-CERTMATE_URL=http://localhost:8000 \
-CERTMATE_TOKEN=<il_tuo_token> \
-SALT_API_PASSWORD=SaltApi2026! \
-python3 scripts/salt_webhook_server.py &
-```
-
----
-
-## Test manuale
-
-### 1. Verifica che tutto comunichi
-
-```bash
-# CertMate health
-curl http://localhost:8000/health
-
-# Webhook server health
-curl http://localhost:5001/health
-
-# Salt ping
-lxc exec salt-master -- salt 'web-01' test.ping
-```
-
-### 2. Crea metadata per un dominio
-
-```bash
-curl -X POST http://localhost:8000/api/web/certificates/example.com/salt-metadata \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <token>" \
-  -d '{
-    "salt_masters": ["salt-master-prod"],
-    "minions": ["web-01"],
-    "environment": "production",
-    "service_restart": "nginx",
-    "deploy_enabled": true
-  }'
-```
-
-### 3. Simula un deploy (senza aspettare il rinnovo)
-
-```bash
-# Via API CertMate (richiede ruolo admin)
-curl -X POST http://localhost:8000/api/certificates/example.com/deploy \
-  -H "Authorization: Bearer <admin_token>"
-
-# Oppure chiama il webhook direttamente
-curl -X POST http://localhost:5001/deploy \
-  -d "domain=example.com"
-```
-
-### 4. Verifica il risultato sul minion
-
-```bash
-lxc exec web-01 -- ls -la /etc/nginx/ssl/example.com/
-lxc exec web-01 -- openssl x509 -in /etc/nginx/ssl/example.com/cert.pem -noout -dates
-lxc exec web-01 -- systemctl is-active nginx
+lxc exec salt-master -- salt '*' test.ping
+# Expected: web-01: True
 ```
 
 ---
 
 ## Troubleshooting
 
-### Docker non raggiunge salt-api
-
-Il container Docker e LXC usano bridge di rete separati. Per questo esiste `salt_webhook_server.py` che gira sull'host come intermediario. Se il problema persiste:
-
-```bash
-# Fix permanente DNS Docker
-echo '{"dns": ["8.8.8.8", "8.8.4.4"]}' | sudo tee /etc/docker/daemon.json
-sudo systemctl restart docker
+### `Client disabled: local` (Salt 3008+)
+Aggiungi a `/etc/salt/master.d/api.conf`:
+```yaml
+netapi_enable_clients:
+  - local
+  - runner
+  - wheel
 ```
 
-### salt-api restituisce 401
+### `401 Unauthorized` dalla salt-api
+- Verifica che l'utente `saltapi` abbia shell `/bin/bash`
+- In LXC: aggiungi `salt` al gruppo `shadow` — `usermod -a -G shadow salt`
+- Riavvia salt-master e salt-api dopo ogni modifica
 
+### Minion non risponde
 ```bash
-# Verifica che salt sia nel gruppo shadow
-lxc exec salt-master -- groups salt
-# Deve contenere "shadow"
-
-# Se manca:
-lxc exec salt-master -- usermod -a -G shadow salt
-lxc exec salt-master -- systemctl restart salt-master salt-api
+salt-master -- salt-key -L   # verifica che la chiave sia accettata
+salt-master -- salt 'web-01' test.ping
 ```
 
-### Minion non si connette al master
+### Test connettività dalla UI
+Usa il pulsante **Test** su ogni Salt Master in Settings → Salt. Mostra il numero di minion visibili.
 
+### Log deploy
 ```bash
-# Verifica configurazione minion
-lxc exec web-01 -- cat /etc/salt/minion | grep master
-
-# Controlla log
-lxc exec web-01 -- journalctl -u salt-minion -n 20
-
-# Verifica chiavi sul master
-lxc exec salt-master -- salt-key -L
-```
-
-### Il cert non arriva sul minion
-
-```bash
-# Testa il download direttamente dal minion
-CERTMATE_IP=$(ip addr show lxdbr0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1)
-lxc exec web-01 -- curl -v \
-  -H "Authorization: Bearer <token>" \
-  "http://$CERTMATE_IP:8000/api/certificates/<domain>/download" \
-  -o /tmp/test.zip
-lxc exec web-01 -- unzip -l /tmp/test.zip
-```
-
-### Deploy hook non parte
-
-```bash
-# Verifica che i deploy hooks siano abilitati in settings.json
-docker exec certmate-test python3 -c "
-import json
-s = json.load(open('/app/data/settings.json'))
-dh = s.get('deploy_hooks', {})
-print('enabled:', dh.get('enabled'))
-print('hooks:', len(dh.get('global_hooks', [])))
-"
-
-# Testa il hook manualmente
-docker exec -e CERTMATE_DOMAIN=example.com certmate-test /app/scripts/hook_salt_deploy.sh
+# Sul container CertMate
+docker logs certmate 2>&1 | grep -i salt
 ```

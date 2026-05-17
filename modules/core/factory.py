@@ -17,7 +17,7 @@ from modules.core import (
     CertificateManager, DNSManager, CacheManager, StorageManager,
     PrivateCAGenerator, CSRHandler, ClientCertificateManager,
     OCSPResponder, CRLManager, AuditLogger,
-    RateLimitConfig, SimpleRateLimiter,
+    RateLimitConfig, SimpleRateLimiter, SaltManager,
     get_certmate_logger
 )
 from modules.core.shell import ShellExecutor
@@ -439,6 +439,10 @@ def initialize_managers(container: AppContainer, app):
         data_dir=str(container.data_dir),
     )
     event_bus.add_listener(deploy_manager.on_certificate_event)
+
+    salt_manager = SaltManager(settings_manager, cert_dir=container.cert_dir)
+    event_bus.add_listener(salt_manager.on_certificate_event)
+
     app.config['EVENT_BUS'] = event_bus
     # DATA_DIR is the partition the DiagnosticsSnapshot endpoint queries
     # for disk_free / disk_total. Stored on the Flask app config so the
@@ -470,6 +474,7 @@ def initialize_managers(container: AppContainer, app):
             audit_logger, notifier, settings_manager
         ),
         'deployer': deploy_manager,
+        'salt': salt_manager,
     }
 
 
@@ -521,6 +526,11 @@ def _client_certificate_renewal_job():
 def _weekly_digest_job():
     """Picklable wrapper for weekly digest"""
     _run_manager_job('digest', 'send')
+
+
+def _expiry_alert_job():
+    """Picklable wrapper for daily expiry alert check"""
+    _run_manager_job('salt', 'check_expiry_alerts')
 
 
 def setup_scheduler(container: AppContainer):
@@ -576,6 +586,11 @@ def setup_scheduler(container: AppContainer):
             func=_weekly_digest_job,
             trigger="cron", day_of_week='sun', hour=0, minute=0,
             id='weekly_digest', replace_existing=True
+        )
+        scheduler.add_job(
+            func=_expiry_alert_job,
+            trigger="cron", hour=8, minute=0,
+            id='expiry_alert_check', replace_existing=True
         )
         container.scheduler = scheduler
         container.managers['scheduler'] = scheduler
