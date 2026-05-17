@@ -90,8 +90,17 @@ class SaltManager:
 
     def _run_state(self, master: dict, token: str,
                    minions: list, domain: str,
-                   service: str, certmate_url: str, certmate_token: str) -> dict:
+                   service: str, certmate_url: str, certmate_token: str,
+                   deploy_path: str = '') -> dict:
         url = f"http://{master['host']}:{master['port']}"
+        pillar = {
+            'certmate_domain': domain,
+            'certmate_url': certmate_url,
+            'certmate_token': certmate_token,
+            'service_restart': service,
+        }
+        if deploy_path:
+            pillar['deploy_path'] = deploy_path
         resp = requests.post(
             url,
             json=[{
@@ -100,14 +109,7 @@ class SaltManager:
                 'tgt_type': 'list',
                 'fun': 'state.apply',
                 'arg': ['certmate.deploy_cert'],
-                'kwarg': {
-                    'pillar': {
-                        'certmate_domain': domain,
-                        'certmate_url': certmate_url,
-                        'certmate_token': certmate_token,
-                        'service_restart': service,
-                    }
-                },
+                'kwarg': {'pillar': pillar},
             }],
             headers={'X-Auth-Token': token, 'Content-Type': 'application/json'},
             timeout=120,
@@ -181,6 +183,7 @@ class SaltManager:
             return {'skipped': 'no minions'}
 
         service = meta.get('service_restart', 'nginx')
+        deploy_path = meta.get('deploy_path', '')
         certmate_url = self._certmate_url_for_minion()
         certmate_token = self._certmate_api_token()
         results = {}
@@ -195,7 +198,7 @@ class SaltManager:
             try:
                 token = self._get_token(master)
                 raw = self._run_state(master, token, minions, domain, service,
-                                      certmate_url, certmate_token)
+                                      certmate_url, certmate_token, deploy_path)
                 minion_results = raw.get('return', [{}])[0]
                 ok_count = 0
                 fail_count = 0
@@ -232,7 +235,7 @@ class SaltManager:
                     try:
                         token = self._get_token(master)
                         raw = self._run_state(master, token, minions, domain, service,
-                                              certmate_url, certmate_token)
+                                              certmate_url, certmate_token, deploy_path)
                         results[master_id] = {'ok': True, 'retry': True}
                     except Exception as retry_err:
                         logger.error(f"Salt deploy retry failed for {master_id}: {retry_err}")

@@ -6,12 +6,14 @@
 #   certmate_url     : URL di CertMate raggiungibile dal minion
 #   certmate_token   : API token di CertMate
 #   service_restart  : servizio da riavviare (nginx, apache2, httpd)
+#   deploy_path      : (opzionale) path destinazione sul minion
+#                      default: /etc/nginx/ssl/<domain>
 
 {% set domain       = pillar.get('certmate_domain', '') %}
 {% set certmate_url = pillar.get('certmate_url', 'http://localhost:8000') %}
 {% set token        = pillar.get('certmate_token', '') %}
 {% set service      = pillar.get('service_restart', 'nginx') %}
-{% set cert_dir     = '/etc/nginx/ssl/' ~ domain %}
+{% set cert_dir     = pillar.get('deploy_path', '/etc/nginx/ssl/' ~ domain) %}
 {% set zip_tmp      = '/tmp/certmate_' ~ domain ~ '.zip' %}
 
 # 1. Crea cartella certificati
