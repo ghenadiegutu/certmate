@@ -1,25 +1,11 @@
 {
   "masters": [
     {
-      "id": "salt-master-1",
-      "label": "salt-master-1 (Production)",
-      "host": "192.168.1.10",
-      "port": 8000,
+      "id": "salt-master-prod",
+      "label": "salt-master-prod (Production LXC)",
+      "host": "10.46.138.223",
+      "port": 8080,
       "environment": "production"
-    },
-    {
-      "id": "salt-master-2",
-      "label": "salt-master-2 (Staging)",
-      "host": "192.168.1.20",
-      "port": 8000,
-      "environment": "staging"
-    },
-    {
-      "id": "salt-master-3",
-      "label": "salt-master-3 (Development)",
-      "host": "192.168.1.30",
-      "port": 8000,
-      "environment": "development"
     }
   ],
   "environments": [
@@ -40,7 +26,6 @@
     "web-01",
     "web-02",
     "api-01",
-    "api-02",
-    "cdn-01"
+    "api-02"
   ]
 }
