@@ -290,17 +290,11 @@
                                     <label for="salt_masters" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                                         <i class="fas fa-network-wired mr-2 text-orange-500"></i>
                                         Salt Master(s)
-                                        <span class="font-normal text-xs text-gray-500 dark:text-gray-400 ml-1">Comma-separated</span>
                                     </label>
-                                    <datalist id="salt_masters_list"></datalist>
                                     <input type="text" id="salt_masters" name="salt_masters"
-                                           list="salt_masters_list"
                                            class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200 placeholder-gray-400"
                                            placeholder="salt-master-1, salt-master-2">
-                                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                        <i class="fas fa-info-circle mr-1"></i>
-                                        Scrivi il nome dei master separati da virgola
-                                    </p>
+                                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Separati da virgola</p>
                                 </div>
                                 <!-- Ambiente e Servizio -->
                                 <div class="space-y-4">
@@ -309,9 +303,7 @@
                                             <i class="fas fa-layer-group mr-2 text-blue-500"></i>
                                             Ambiente
                                         </label>
-                                        <datalist id="salt_environment_list"></datalist>
                                         <input type="text" id="salt_environment" name="salt_environment"
-                                               list="salt_environment_list"
                                                class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200 placeholder-gray-400"
                                                placeholder="production">
                                     </div>
@@ -320,9 +312,7 @@
                                             <i class="fas fa-redo mr-2 text-teal-500"></i>
                                             Servizio da riavviare
                                         </label>
-                                        <datalist id="salt_service_list"></datalist>
                                         <input type="text" id="salt_service_restart" name="salt_service_restart"
-                                               list="salt_service_list"
                                                class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200 placeholder-gray-400"
                                                placeholder="nginx">
                                     </div>
@@ -333,17 +323,11 @@
                                 <label for="salt_minions" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                                     <i class="fas fa-server mr-2 text-purple-500"></i>
                                     Minion Targets
-                                    <span class="font-normal text-xs text-gray-500 dark:text-gray-400 ml-1">Comma-separated</span>
                                 </label>
                                 <input type="text" id="salt_minions" name="salt_minions"
-                                       list="salt_minions_list"
                                        class="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 transition-all duration-200 placeholder-gray-400"
-                                       placeholder="web-01, web-02, api-04, cdn-03">
-                                <datalist id="salt_minions_list"></datalist>
-                                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                    <i class="fas fa-info-circle mr-1"></i>
-                                    Elenco minion separati da virgola: web-01, web-02, api-04
-                                </p>
+                                       placeholder="web-01, web-02, api-04">
+                                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Separati da virgola</p>
                             </div>
                             <!-- Deploy Enabled -->
                             <div class="mt-4">
@@ -436,44 +420,6 @@
             if (ch) ch.style.transform = hidden ? 'rotate(180deg)' : '';
         }
 
-        // Load Salt config from API and populate all dropdowns dynamically
-        (function loadSaltConfig() {
-            fetch('/api/web/salt-masters', { credentials: 'same-origin' })
-                .then(function(r) { return r.ok ? r.json() : null; })
-                .then(function(data) {
-                    if (!data) return;
-                    window._saltConfig = data;
-                    window._saltMastersConfig = data.masters || [];
-
-                    // Helper: fill a datalist with values
-                    function fillDatalist(id, values) {
-                        var dl = document.getElementById(id);
-                        if (!dl || !Array.isArray(values)) return;
-                        dl.innerHTML = '';
-                        values.forEach(function(v) {
-                            var opt = document.createElement('option');
-                            opt.value = v;
-                            dl.appendChild(opt);
-                        });
-                    }
-
-                    // Salt Masters datalist — id values as suggestions
-                    var masterIds = Array.isArray(data.masters)
-                        ? data.masters.map(function(m) { return m.id; })
-                        : [];
-                    fillDatalist('salt_masters_list', masterIds);
-
-                    // Environments datalist
-                    fillDatalist('salt_environment_list', data.environments || []);
-
-                    // Services datalist
-                    fillDatalist('salt_service_list', data.services || []);
-
-                    // Minion presets datalist
-                    fillDatalist('salt_minions_list', data.minion_presets || []);
-                })
-                .catch(function() {});
-        })();
         </script>
 
         <!-- Statistics Cards (skeleton placeholders rendered by JS on
@@ -559,8 +505,8 @@
                             <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden lg:table-cell">
                                 Provider
                             </th>
-                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden xl:table-cell">
-                                <i class="fas fa-terminal mr-1 text-orange-500"></i>Salt
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden lg:table-cell">
+                                <i class="fas fa-server mr-1 text-purple-500"></i>Minions
                             </th>
                             <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden lg:table-cell">
                                 Deployment

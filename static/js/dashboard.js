@@ -297,20 +297,14 @@
         });
     }
 
-    function saltBadgeHtml(domain) {
+    function minionsCellHtml(domain) {
         var meta = saltMetadataCache[domain];
-        if (!meta) return '<span class="text-xs text-gray-400 dark:text-gray-600">—</span>';
-        var envColors = {
-            production: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
-            staging: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300',
-            development: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-        };
-        var envClass = envColors[meta.environment] || envColors.development;
-        var envLabel = meta.environment ? meta.environment.charAt(0).toUpperCase() + meta.environment.slice(1) : '—';
-        var deployIcon = meta.deploy_enabled
-            ? '<i class="fas fa-rocket text-orange-500 mr-1" title="Auto-deploy abilitato"></i>'
-            : '<i class="fas fa-pause text-gray-400 mr-1" title="Auto-deploy disabilitato"></i>';
-        return deployIcon + '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ' + envClass + '">' + escapeHtml(envLabel) + '</span>';
+        if (!meta || !Array.isArray(meta.minions) || !meta.minions.length) {
+            return '<span class="text-xs text-gray-400 dark:text-gray-600">—</span>';
+        }
+        return meta.minions.map(function (m) {
+            return '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-mono bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 mr-1 mb-0.5">' + escapeHtml(m) + '</span>';
+        }).join('');
     }
 
     function saveSaltMetadata(domain, data, callback) {
@@ -595,7 +589,7 @@
                     <td class="px-4 py-4 whitespace-nowrap"><span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-700 dark:text-red-400 ring-1 ring-inset ring-red-500/20"><i class="fas fa-times-circle mr-1"></i>Not Found</span></td>
                     <td class="px-4 py-4 whitespace-nowrap hidden md:table-cell text-sm text-gray-500 dark:text-gray-400">\u2014</td>
                     <td class="px-4 py-4 whitespace-nowrap hidden lg:table-cell text-sm text-gray-500 dark:text-gray-400">${providerLabel || '\u2014'}</td>
-                    <td class="px-4 py-4 whitespace-nowrap hidden xl:table-cell">\u2014</td>
+                    <td class="px-4 py-4 whitespace-nowrap hidden lg:table-cell">\u2014</td>
                     <td class="px-4 py-4 whitespace-nowrap hidden lg:table-cell">\u2014</td>
                     <td class="px-4 py-4 whitespace-nowrap text-right">
                         <div class="flex items-center justify-end gap-1">
@@ -670,7 +664,7 @@
                 <td class="px-4 py-4 whitespace-nowrap"><span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${rowRaw(statusClass)}"><i class="fas ${rowRaw(statusIcon)} mr-1"></i>${statusText}</span></td>
                 <td class="px-4 py-4 whitespace-nowrap hidden md:table-cell"><div class="text-sm text-gray-900 dark:text-white">${expiryStr}</div><div class="text-xs ${rowRaw(daysClass)}">${cert.days_until_expiry} days</div></td>
                 <td class="px-4 py-4 whitespace-nowrap hidden lg:table-cell text-sm text-gray-500 dark:text-gray-400">${rowRaw(providerLabel) || '—'}</td>
-                <td class="px-4 py-4 whitespace-nowrap hidden xl:table-cell" id="${rowRaw('salt-cell-' + escapeHtml(cert.domain).replace(/\./g, '-'))}">${rowRaw(saltBadgeHtml(cert.domain))}</td>
+                <td class="px-4 py-4 hidden lg:table-cell" id="${rowRaw('salt-cell-' + escapeHtml(cert.domain).replace(/\./g, '-'))}">${rowRaw(minionsCellHtml(cert.domain))}</td>
                 <td class="px-4 py-4 whitespace-nowrap hidden lg:table-cell">${rowRaw(deploymentBadgesHtml(cert))}</td>
                 <td class="px-4 py-4 whitespace-nowrap text-right">
                     <div class="flex items-center justify-end gap-1">
@@ -871,61 +865,29 @@
     }
 
     function buildSaltDetailHtml(safeDomain, meta) {
-        var cfg = window._saltConfig || {};
-
-        // Salt Masters — ids used as datalist suggestions
-        var mastersCache = cfg.masters || window._saltMastersConfig || [];
-
-        // Environments — from config, fallback to defaults (used as datalist suggestions)
-        var environments = Array.isArray(cfg.environments) && cfg.environments.length ? cfg.environments : ['production', 'staging', 'development'];
-
-        // Services — from config, fallback to defaults (used as datalist suggestions)
-        var services = Array.isArray(cfg.services) && cfg.services.length ? cfg.services : ['nginx', 'apache2', 'httpd', 'custom'];
-
-        // Minion presets (used as datalist suggestions)
-        var minionPresets = Array.isArray(cfg.minion_presets) ? cfg.minion_presets : [];
-
         var mastersVal = meta && Array.isArray(meta.salt_masters) ? escapeHtml(meta.salt_masters.join(', ')) : '';
         var minionsVal = meta && Array.isArray(meta.minions) ? escapeHtml(meta.minions.join(', ')) : '';
-        var envVal = meta ? escapeHtml(meta.environment || '') : '';
-        var svcVal = meta ? escapeHtml(meta.service_restart || '') : '';
+        var envVal     = meta ? escapeHtml(meta.environment || '') : '';
+        var svcVal     = meta ? escapeHtml(meta.service_restart || '') : '';
         var deployChecked = (!meta || meta.deploy_enabled !== false) ? ' checked' : '';
-
         var formId = 'salt-form-' + safeDomain.replace(/\./g, '-');
-        var dlMasters = 'dl-masters-' + safeDomain.replace(/\./g, '-');
-        var dlMinions = 'dl-minions-' + safeDomain.replace(/\./g, '-');
-        var dlEnv = 'dl-env-' + safeDomain.replace(/\./g, '-');
-        var dlSvc = 'dl-svc-' + safeDomain.replace(/\./g, '-');
-
-        var inputCls = 'block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md py-1.5 px-2 text-xs focus:ring-orange-400 focus:border-orange-400';
-
-        function dl(id, values) {
-            return '<datalist id="' + id + '">' +
-                values.map(function (v) { return '<option value="' + escapeHtml(v) + '">'; }).join('') +
-                '</datalist>';
-        }
+        var ic = 'block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md py-1.5 px-2 text-xs focus:ring-orange-400 focus:border-orange-400';
+        var lc = 'block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1';
 
         return '<form id="' + formId + '" class="space-y-3" onsubmit="submitSaltMetadata(event, \'' + safeDomain + '\')">' +
-            '<div>' +
-            '<label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-network-wired mr-1 text-orange-400"></i>Salt Master(s) <span class="text-gray-400">(comma-separated)</span></label>' +
-            dl(dlMasters, mastersCache.map(function (m) { return m.id; })) +
-            '<input type="text" name="salt_masters" list="' + dlMasters + '" value="' + mastersVal + '" placeholder="salt-master-1, salt-master-2" class="' + inputCls + '"></div>' +
-            '<div>' +
-            '<label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-server mr-1 text-purple-400"></i>Minion Targets <span class="text-gray-400">(comma-separated)</span></label>' +
-            dl(dlMinions, minionPresets) +
-            '<input type="text" name="minions" list="' + dlMinions + '" value="' + minionsVal + '" placeholder="web-01, web-02, api-04" class="' + inputCls + '"></div>' +
+            '<div><label class="' + lc + '"><i class="fas fa-network-wired mr-1 text-orange-400"></i>Salt Master(s)</label>' +
+            '<input type="text" name="salt_masters" value="' + mastersVal + '" placeholder="salt-master-1, salt-master-2" class="' + ic + '"></div>' +
+            '<div><label class="' + lc + '"><i class="fas fa-server mr-1 text-purple-400"></i>Minion Targets</label>' +
+            '<input type="text" name="minions" value="' + minionsVal + '" placeholder="web-01, web-02, api-04" class="' + ic + '"></div>' +
             '<div class="grid grid-cols-2 gap-2">' +
-            '<div><label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-layer-group mr-1 text-blue-400"></i>Ambiente</label>' +
-            dl(dlEnv, environments) +
-            '<input type="text" name="environment" list="' + dlEnv + '" value="' + envVal + '" placeholder="production" class="' + inputCls + '"></div>' +
-            '<div><label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><i class="fas fa-redo mr-1 text-teal-400"></i>Servizio</label>' +
-            dl(dlSvc, services) +
-            '<input type="text" name="service_restart" list="' + dlSvc + '" value="' + svcVal + '" placeholder="nginx" class="' + inputCls + '"></div>' +
+            '<div><label class="' + lc + '"><i class="fas fa-layer-group mr-1 text-blue-400"></i>Ambiente</label>' +
+            '<input type="text" name="environment" value="' + envVal + '" placeholder="production" class="' + ic + '"></div>' +
+            '<div><label class="' + lc + '"><i class="fas fa-redo mr-1 text-teal-400"></i>Servizio</label>' +
+            '<input type="text" name="service_restart" value="' + svcVal + '" placeholder="nginx" class="' + ic + '"></div>' +
             '</div>' +
             '<label class="flex items-center text-xs text-gray-600 dark:text-gray-400 cursor-pointer gap-2">' +
             '<input type="checkbox" name="deploy_enabled" value="true"' + deployChecked + ' class="rounded border-gray-300 text-orange-500 focus:ring-orange-400">' +
-            '<i class="fas fa-rocket text-orange-400"></i>Abilita auto-deploy Salt' +
-            '</label>' +
+            '<i class="fas fa-rocket text-orange-400"></i>Abilita auto-deploy Salt</label>' +
             '<button type="submit" class="w-full inline-flex items-center justify-center px-4 py-2 border border-orange-300 dark:border-orange-700 shadow-sm text-xs font-medium rounded-md text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40">' +
             '<i class="fas fa-save mr-2"></i>Salva configurazione Salt</button>' +
             '</form>';
@@ -959,7 +921,7 @@
                 // Refresh Salt column in table
                 var domainId = safeDomain.replace(/\./g, '-');
                 var cell = document.getElementById('salt-cell-' + domainId);
-                if (cell) cell.innerHTML = saltBadgeHtml(safeDomain);
+                if (cell) cell.innerHTML = minionsCellHtml(safeDomain);
             } else {
                 showMessage((res && res.error) || 'Errore nel salvataggio', 'error');
             }
@@ -1380,7 +1342,7 @@
                 loadSaltMetadata(cert.domain, function () {
                     var domainId = escapeHtml(cert.domain).replace(/\./g, '-');
                     var cell = document.getElementById('salt-cell-' + domainId);
-                    if (cell) cell.innerHTML = saltBadgeHtml(cert.domain);
+                    if (cell) cell.innerHTML = minionsCellHtml(cert.domain);
                 });
             });
 
