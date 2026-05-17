@@ -163,59 +163,87 @@ systemctl restart salt-master salt-api
 
 ---
 
-## Salt State
+## Salt States
 
-Posiziona questo file su ogni Salt Master in `/srv/salt/certmate/deploy_cert.sls`:
+Posiziona entrambi i file su ogni Salt Master in `/srv/salt/certmate/`.
 
-```yaml
-# Scarica e installa il certificato da CertMate
-{% set domain = pillar.get('certmate_domain', '') %}
+### `deploy_cert.sls` — Installa il certificato
+
+```jinja
+{% set domain       = pillar.get('certmate_domain', '') %}
 {% set certmate_url = pillar.get('certmate_url', 'http://localhost:8000') %}
-{% set certmate_token = pillar.get('certmate_token', '') %}
-{% set service = pillar.get('service_restart', 'nginx') %}
-{% set cert_dir = '/etc/ssl/certs/' + domain %}
+{% set token        = pillar.get('certmate_token', '') %}
+{% set service      = pillar.get('service_restart', 'nginx') %}
+{% set cert_dir     = pillar.get('deploy_path', '/etc/nginx/ssl/' ~ domain) %}
+{% set zip_tmp      = '/tmp/certmate_' ~ domain ~ '.zip' %}
 
-create_cert_dir:
+{{ cert_dir }}:
   file.directory:
-    - name: {{ cert_dir }}
     - makedirs: True
-    - mode: '0755'
+    - mode: 700
 
-download_cert_zip:
+download_cert_zip_{{ domain | replace('.', '_') }}:
   cmd.run:
     - name: >
-        curl -fsSL -H "Authorization: Bearer {{ certmate_token }}"
+        curl -sf -H "Authorization: Bearer {{ token }}"
         "{{ certmate_url }}/api/certificates/{{ domain }}/download"
-        -o /tmp/cert_{{ domain }}.zip
+        -o {{ zip_tmp }}
     - require:
-      - file: create_cert_dir
+      - file: {{ cert_dir }}
 
-extract_cert:
+extract_cert_zip_{{ domain | replace('.', '_') }}:
   cmd.run:
-    - name: unzip -o /tmp/cert_{{ domain }}.zip -d {{ cert_dir }}
+    - name: unzip -o {{ zip_tmp }} -d {{ cert_dir }}
     - require:
-      - cmd: download_cert_zip
+      - cmd: download_cert_zip_{{ domain | replace('.', '_') }}
 
-set_key_permissions:
+{{ cert_dir }}/privkey.pem:
   file.managed:
-    - name: {{ cert_dir }}/privkey.pem
-    - mode: '0600'
+    - mode: 600
+    - replace: False
     - require:
-      - cmd: extract_cert
+      - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
 
-reload_service:
+cleanup_zip_{{ domain | replace('.', '_') }}:
+  cmd.run:
+    - name: rm -f {{ zip_tmp }}
+    - require:
+      - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
+
+{{ service }}_reload_{{ domain | replace('.', '_') }}:
+  service.running:
+    - name: {{ service }}
+    - reload: True
+    - watch:
+      - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
+```
+
+### `remove_cert.sls` — Rimuove il certificato
+
+Usata da CertMate quando si cancella un certificato dalla dashboard (con la checkbox "Rimuovi anche dai server Salt").
+
+```jinja
+{% set domain   = pillar.get('certmate_domain', '') %}
+{% set cert_dir = pillar.get('deploy_path', '/etc/nginx/ssl/' ~ domain) %}
+{% set service  = pillar.get('service_restart', 'nginx') %}
+
+remove_cert_dir_{{ domain | replace('.', '_') }}:
+  file.absent:
+    - name: {{ cert_dir }}
+
+{{ service }}_reload_after_remove_{{ domain | replace('.', '_') }}:
   service.running:
     - name: {{ service }}
     - reload: True
     - require:
-      - file: set_key_permissions
+      - file: remove_cert_dir_{{ domain | replace('.', '_') }}
 ```
 
 ---
 
 ## Salt Metadata per certificato
 
-Ogni certificato può avere un file `salt_metadata.json` nella sua directory (`certificates/<domain>/`). Questo file indica a CertMate dove deployare.
+Ogni certificato può avere un file `salt_metadata.json` nella sua directory (`certificates/<domain>/`). Configurabile dalla dashboard nel pannello dettaglio del certificato.
 
 ```json
 {
@@ -223,24 +251,56 @@ Ogni certificato può avere un file `salt_metadata.json` nella sua directory (`c
   "salt_masters": ["salt-master-prod"],
   "minions": ["web-01", "web-02"],
   "service_restart": "nginx",
+  "deploy_path": "/etc/nginx/ssl/example.com",
   "environment": "production",
   "deploy_enabled": true
 }
 ```
 
-Il file viene creato/aggiornato tramite l'API:
+| Campo | Default | Descrizione |
+|---|---|---|
+| `salt_masters` | `[]` | ID dei Salt Master configurati in Settings → Salt |
+| `minions` | `[]` | Lista minion target (nomi esatti Salt) |
+| `service_restart` | `nginx` | Servizio da ricaricare dopo il deploy |
+| `deploy_path` | `/etc/nginx/ssl/<domain>` | Path destinazione sul minion |
+| `deploy_enabled` | `true` | Disabilita il deploy automatico per questo cert |
+
+### API
 
 ```bash
 # Salva metadati
 curl -X POST http://localhost:8000/api/web/certificates/example.com/salt-metadata \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"salt_masters":["salt-master-prod"],"minions":["web-01"],"service_restart":"nginx","deploy_enabled":true}'
+  -d '{
+    "salt_masters": ["salt-master-prod"],
+    "minions": ["web-01", "web-02"],
+    "service_restart": "nginx",
+    "deploy_path": "/etc/nginx/ssl/example.com",
+    "deploy_enabled": true
+  }'
 
-# Trigger deploy manuale
+# Deploy manuale
 curl -X POST http://localhost:8000/api/salt/deploy/example.com \
   -H "Authorization: Bearer <token>"
+
+# Rimuovi dai minion (prima di cancellare il cert)
+curl -X POST http://localhost:8000/api/salt/remove/example.com \
+  -H "Authorization: Bearer <token>"
 ```
+
+---
+
+## Cancellazione certificato con cleanup Salt
+
+Quando si cancella un certificato dalla dashboard, se il cert ha Salt metadata configurata appare una checkbox:
+
+> **Rimuovi anche dai server Salt (N minions: web-01, web-02)**
+
+- **Spuntata (default)**: CertMate chiama prima `POST /api/salt/remove/<domain>` (rimuove la directory `deploy_path` su tutti i minion e ricarica il servizio), poi cancella il cert da CertMate.
+- **Deselezionata**: cancella solo da CertMate, i file rimangono sui server.
+
+> **Nota**: il cleanup avviene *prima* della cancellazione del cert, così `salt_metadata.json` è ancora disponibile per determinare quali minion e quale path pulire.
 
 ---
 
