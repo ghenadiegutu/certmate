@@ -2060,51 +2060,106 @@
 
     // Delete a certificate and its settings entry (issue #111).
     function deleteCertificate(domain) {
-        // Use CertMate.confirm (in-page modal, danger-styled) for parity
-        // with every other destructive action in the app (revoke client
-        // cert, delete user, delete backup, delete API key). The native
-        // window.confirm bypasses the app theme and is dismissible by
-        // browser "block dialogs" toggles — too weak a guard for an
-        // operation that erases the cert files and the settings entry.
-        CertMate.confirm(
-            'Delete certificate for ' + domain + '? This removes the certificate files from disk and removes the domain from settings. This action cannot be undone.',
-            'Delete Certificate',
-            { confirmText: 'Delete' }
-        ).then(function (confirmed) {
-            if (!confirmed) return;
-            fetch('/api/certificates/' + encodeURIComponent(domain), {
-                method: 'DELETE'
-            }).then(function (response) {
-                return response.json().then(function (result) {
-                    return { ok: response.ok, status: response.status, result: result };
-                });
-            }).then(function (data) {
-                if (data.ok) {
-                    showMessage('Certificate deleted for ' + domain, 'success');
-                    closeCertDetail();
-                    loadCertificates();
-                } else {
-                    showMessage(data.result.error || 'Failed to delete certificate', 'error', {
+        // Check if Salt metadata exists to optionally show cleanup checkbox
+        var saltMeta = saltMetadataCache[domain] || null;
+        var hasSalt = saltMeta && Array.isArray(saltMeta.minions) && saltMeta.minions.length > 0;
+        var minionCount = hasSalt ? saltMeta.minions.length : 0;
+
+        var saltCheckboxHtml = hasSalt
+            ? '<label class="flex items-start gap-2 mt-4 p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800/40 rounded-lg cursor-pointer">' +
+              '<input type="checkbox" id="saltCleanupCheck" class="mt-0.5 rounded border-gray-300 text-orange-500 focus:ring-orange-400" checked>' +
+              '<span class="text-sm text-orange-800 dark:text-orange-200">' +
+              '<i class="fas fa-terminal mr-1"></i>' +
+              'Rimuovi anche dai server Salt (' + minionCount + ' minion' + (minionCount > 1 ? 's' : '') + ': ' +
+              CertMate.escapeHtml(saltMeta.minions.join(', ')) + ')' +
+              '</span></label>'
+            : '';
+
+        return new Promise(function (resolve) {
+            var overlay = document.createElement('div');
+            overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm';
+            overlay.innerHTML =
+                '<div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4">' +
+                '<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">' +
+                '<i class="fas fa-trash-alt mr-2 text-red-500"></i>Delete Certificate</h3>' +
+                '<p class="text-sm text-gray-600 dark:text-gray-300">Delete certificate for <strong>' + CertMate.escapeHtml(domain) + '</strong>? This removes the certificate files from disk and removes the domain from settings. This action cannot be undone.</p>' +
+                saltCheckboxHtml +
+                '<div class="flex justify-end gap-3 mt-6">' +
+                '<button id="saltDeleteCancel" class="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">Cancel</button>' +
+                '<button id="saltDeleteConfirm" class="px-4 py-2 text-sm font-medium rounded-lg text-white bg-red-600 hover:bg-red-700">Delete</button>' +
+                '</div></div>';
+            document.body.appendChild(overlay);
+
+            overlay.querySelector('#saltDeleteCancel').addEventListener('click', function () {
+                document.body.removeChild(overlay);
+                resolve(false);
+            });
+            overlay.querySelector('#saltDeleteConfirm').addEventListener('click', function () {
+                var saltCleanup = hasSalt && (overlay.querySelector('#saltCleanupCheck') || {}).checked;
+                document.body.removeChild(overlay);
+                resolve(saltCleanup);
+            });
+            overlay.addEventListener('click', function (e) {
+                if (e.target === overlay) { document.body.removeChild(overlay); resolve(false); }
+            });
+        }).then(function (saltCleanup) {
+            if (saltCleanup === false && !hasSalt) return; // cancelled
+            if (saltCleanup === false && hasSalt) return;  // cancelled
+
+            var doDelete = function () {
+                fetch('/api/certificates/' + encodeURIComponent(domain), {
+                    method: 'DELETE'
+                }).then(function (response) {
+                    return response.json().then(function (result) {
+                        return { ok: response.ok, status: response.status, result: result };
+                    });
+                }).then(function (data) {
+                    if (data.ok) {
+                        showMessage('Certificate deleted for ' + domain, 'success');
+                        closeCertDetail();
+                        loadCertificates();
+                    } else {
+                        showMessage(data.result.error || 'Failed to delete certificate', 'error', {
+                            errorContext: {
+                                endpoint: 'DELETE /api/certificates/' + domain,
+                                status: data.status || 0,
+                                code: data.result.code,
+                                message: data.result.error,
+                                hint: data.result.hint
+                            }
+                        });
+                    }
+                }).catch(function (error) {
+                    console.error('Error deleting certificate:', error);
+                    showMessage('Failed to delete certificate. Please try again.', 'error', {
                         errorContext: {
                             endpoint: 'DELETE /api/certificates/' + domain,
-                            status: data.status || 0,
-                            code: data.result.code,
-                            message: data.result.error,
-                            hint: data.result.hint
+                            status: 0,
+                            code: 'NETWORK_ERROR',
+                            message: (error && error.message) || 'network error'
                         }
                     });
-                }
-            }).catch(function (error) {
-                console.error('Error deleting certificate:', error);
-                showMessage('Failed to delete certificate. Please try again.', 'error', {
-                    errorContext: {
-                        endpoint: 'DELETE /api/certificates/' + domain,
-                        status: 0,
-                        code: 'NETWORK_ERROR',
-                        message: (error && error.message) || 'network error'
-                    }
                 });
-            });
+            };
+
+            if (saltCleanup) {
+                showMessage('Removing from Salt minions...', 'info');
+                fetch('/api/salt/remove/' + encodeURIComponent(domain), { method: 'POST' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (res) {
+                        var allOk = Object.values(res.results || {}).every(function (r) { return r.ok; });
+                        if (!allOk) {
+                            showMessage('Salt removal had errors, proceeding with cert deletion anyway', 'warning');
+                        }
+                        doDelete();
+                    })
+                    .catch(function () {
+                        showMessage('Salt removal failed, proceeding with cert deletion anyway', 'warning');
+                        doDelete();
+                    });
+            } else {
+                doDelete();
+            }
         });
     }
 

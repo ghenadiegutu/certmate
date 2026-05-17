@@ -250,6 +250,68 @@ class SaltManager:
         return results
 
     # ------------------------------------------------------------------ #
+    #  Remove                                                              #
+    # ------------------------------------------------------------------ #
+
+    def _run_remove_state(self, master: dict, token: str,
+                          minions: list, domain: str,
+                          service: str, deploy_path: str = '') -> dict:
+        url = f"http://{master['host']}:{master['port']}"
+        pillar = {'certmate_domain': domain, 'service_restart': service}
+        if deploy_path:
+            pillar['deploy_path'] = deploy_path
+        resp = requests.post(
+            url,
+            json=[{
+                'client': 'local',
+                'tgt': minions,
+                'tgt_type': 'list',
+                'fun': 'state.apply',
+                'arg': ['certmate.remove_cert'],
+                'kwarg': {'pillar': pillar},
+            }],
+            headers={'X-Auth-Token': token, 'Content-Type': 'application/json'},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def remove_cert(self, domain: str) -> dict:
+        """Remove certificate files from minions. Call BEFORE deleting the cert in CertMate."""
+        meta = self._load_salt_metadata(domain)
+        if not meta:
+            return {'skipped': 'no salt metadata'}
+
+        minions = meta.get('minions', [])
+        if not minions:
+            return {'skipped': 'no minions'}
+
+        service = meta.get('service_restart', 'nginx')
+        deploy_path = meta.get('deploy_path', '')
+        results = {}
+
+        for master_id in meta.get('salt_masters', []):
+            master = self._resolve_master(master_id)
+            if not master:
+                results[master_id] = {'error': 'master not configured'}
+                continue
+            try:
+                token = self._get_token(master)
+                raw = self._run_remove_state(master, token, minions, domain, service, deploy_path)
+                minion_results = raw.get('return', [{}])[0]
+                ok_count = sum(1 for s in minion_results.values()
+                               if isinstance(s, dict) and
+                               all(v.get('result', True) for v in s.values() if isinstance(v, dict)))
+                fail_count = len(minion_results) - ok_count
+                results[master_id] = {'ok': fail_count == 0, 'minions_ok': ok_count, 'minions_failed': fail_count}
+                logger.info(f"Salt remove {domain} via {master_id}: ok={ok_count} failed={fail_count}")
+            except Exception as e:
+                logger.error(f"Salt remove failed for {master_id}: {e}")
+                results[master_id] = {'ok': False, 'error': str(e)}
+
+        return results
+
+    # ------------------------------------------------------------------ #
     #  Event bus listener                                                  #
     # ------------------------------------------------------------------ #
 

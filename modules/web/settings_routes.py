@@ -530,3 +530,16 @@ def register_settings_routes(app, managers, require_web_auth, auth_manager,
         except Exception as e:
             logger.error(f"Salt manual deploy failed for {domain}: {e}")
             return jsonify({'error': str(e)}), 500
+
+    @app.route('/api/salt/remove/<string:domain>', methods=['POST'])
+    @auth_manager.require_role('operator')
+    def salt_remove_cert(domain):
+        """Remove certificate files from Salt minions before cert deletion."""
+        if not salt_manager:
+            return jsonify({'error': 'Salt manager not available'}), 503
+        try:
+            results = salt_manager.remove_cert(domain)
+            return jsonify({'status': 'ok', 'results': results})
+        except Exception as e:
+            logger.error(f"Salt remove failed for {domain}: {e}")
+            return jsonify({'error': str(e)}), 500
