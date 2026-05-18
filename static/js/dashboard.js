@@ -10,7 +10,8 @@
 
     // API Configuration - session cookies are sent automatically
     var API_HEADERS = {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Origin': window.location.origin
     };
 
     var escapeHtml = CertMate.escapeHtml;
@@ -310,7 +311,7 @@
     function saveSaltMetadata(domain, data, callback) {
         fetch('/api/web/certificates/' + encodeURIComponent(domain) + '/salt-metadata', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: API_HEADERS,
             credentials: 'same-origin',
             body: JSON.stringify(data)
         }).then(function (r) {
@@ -1976,7 +1977,7 @@
         );
         fetch('/api/certificates/' + encodeURIComponent(domain) + '/deploy', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: API_HEADERS
         }).then(function (response) {
             return response.text().then(function (text) {
                 var body = null;
@@ -2044,7 +2045,7 @@
         }
         fetch('/api/certificates/' + encodeURIComponent(domain) + '/auto-renew', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: API_HEADERS,
             body: JSON.stringify({ enabled: nextState })
         }).then(function (response) {
             return response.json().then(function (result) {
@@ -2177,7 +2178,7 @@
 
         fetch('/api/certificates/' + encodeURIComponent(domain) + '/renew', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: API_HEADERS,
             body: JSON.stringify({ force: force })
         }).then(function (response) {
             return response.json().then(function (result) {
