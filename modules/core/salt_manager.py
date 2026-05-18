@@ -91,7 +91,7 @@ class SaltManager:
     def _run_state(self, master: dict, token: str,
                    minions: list, domain: str,
                    service: str, certmate_url: str, certmate_token: str,
-                   deploy_path: str = '') -> dict:
+                   deploy_path: str = '', restart_cmd: str = '') -> dict:
         url = f"http://{master['host']}:{master['port']}"
         pillar = {
             'certmate_domain': domain,
@@ -101,6 +101,8 @@ class SaltManager:
         }
         if deploy_path:
             pillar['deploy_path'] = deploy_path
+        if restart_cmd:
+            pillar['restart_cmd'] = restart_cmd
         resp = requests.post(
             url,
             json=[{
@@ -184,6 +186,7 @@ class SaltManager:
 
         service = meta.get('service_restart', 'nginx')
         deploy_path = meta.get('deploy_path', '')
+        restart_cmd = meta.get('restart_cmd', '')
         certmate_url = self._certmate_url_for_minion()
         certmate_token = self._certmate_api_token()
         results = {}
@@ -198,7 +201,7 @@ class SaltManager:
             try:
                 token = self._get_token(master)
                 raw = self._run_state(master, token, minions, domain, service,
-                                      certmate_url, certmate_token, deploy_path)
+                                      certmate_url, certmate_token, deploy_path, restart_cmd)
                 minion_results = raw.get('return', [{}])[0]
                 ok_count = 0
                 fail_count = 0
@@ -235,7 +238,7 @@ class SaltManager:
                     try:
                         token = self._get_token(master)
                         raw = self._run_state(master, token, minions, domain, service,
-                                              certmate_url, certmate_token, deploy_path)
+                                              certmate_url, certmate_token, deploy_path, restart_cmd)
                         results[master_id] = {'ok': True, 'retry': True}
                     except Exception as retry_err:
                         logger.error(f"Salt deploy retry failed for {master_id}: {retry_err}")
@@ -255,11 +258,14 @@ class SaltManager:
 
     def _run_remove_state(self, master: dict, token: str,
                           minions: list, domain: str,
-                          service: str, deploy_path: str = '') -> dict:
+                          service: str, deploy_path: str = '',
+                          restart_cmd: str = '') -> dict:
         url = f"http://{master['host']}:{master['port']}"
         pillar = {'certmate_domain': domain, 'service_restart': service}
         if deploy_path:
             pillar['deploy_path'] = deploy_path
+        if restart_cmd:
+            pillar['restart_cmd'] = restart_cmd
         resp = requests.post(
             url,
             json=[{
@@ -288,6 +294,7 @@ class SaltManager:
 
         service = meta.get('service_restart', 'nginx')
         deploy_path = meta.get('deploy_path', '')
+        restart_cmd = meta.get('restart_cmd', '')
         results = {}
 
         for master_id in meta.get('salt_masters', []):
@@ -297,7 +304,7 @@ class SaltManager:
                 continue
             try:
                 token = self._get_token(master)
-                raw = self._run_remove_state(master, token, minions, domain, service, deploy_path)
+                raw = self._run_remove_state(master, token, minions, domain, service, deploy_path, restart_cmd)
                 minion_results = raw.get('return', [{}])[0]
                 ok_count = sum(1 for s in minion_results.values()
                                if isinstance(s, dict) and

@@ -870,6 +870,7 @@
         var envVal     = meta ? escapeHtml(meta.environment || '') : '';
         var svcVal     = meta ? escapeHtml(meta.service_restart || '') : '';
         var pathVal    = meta ? escapeHtml(meta.deploy_path || '') : '';
+        var cmdVal     = meta ? escapeHtml(meta.restart_cmd || '') : '';
         var deployChecked = (!meta || meta.deploy_enabled !== false) ? ' checked' : '';
         var formId = 'salt-form-' + safeDomain.replace(/\./g, '-');
         var ic = 'block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md py-1.5 px-2 text-xs focus:ring-orange-400 focus:border-orange-400';
@@ -886,8 +887,10 @@
             '<div><label class="' + lc + '"><i class="fas fa-redo mr-1 text-teal-400"></i>Servizio</label>' +
             '<input type="text" name="service_restart" value="' + svcVal + '" placeholder="nginx" class="' + ic + '"></div>' +
             '</div>' +
-            '<div><label class="' + lc + '"><i class="fas fa-folder-open mr-1 text-yellow-500"></i>Deploy Path <span class="text-gray-400 font-normal">(opzionale — default: /etc/nginx/ssl/&lt;domain&gt;)</span></label>' +
+            '<div><label class="' + lc + '"><i class="fas fa-folder-open mr-1 text-yellow-500"></i>Deploy Path <span class="text-gray-400 font-normal">(default: /etc/nginx/ssl/&lt;domain&gt;)</span></label>' +
             '<input type="text" name="deploy_path" value="' + pathVal + '" placeholder="/etc/nginx/ssl/' + safeDomain.replace(/-/g, '.') + '" class="' + ic + '"></div>' +
+            '<div><label class="' + lc + '"><i class="fas fa-terminal mr-1 text-blue-400"></i>Restart Command <span class="text-gray-400 font-normal">(opzionale — per Docker Compose)</span></label>' +
+            '<input type="text" name="restart_cmd" value="' + cmdVal + '" placeholder="docker compose -f /opt/app/docker-compose.yml restart nginx" class="' + ic + '"></div>' +
             '<label class="flex items-center text-xs text-gray-600 dark:text-gray-400 cursor-pointer gap-2">' +
             '<input type="checkbox" name="deploy_enabled" value="true"' + deployChecked + ' class="rounded border-gray-300 text-orange-500 focus:ring-orange-400">' +
             '<i class="fas fa-rocket text-orange-400"></i>Abilita auto-deploy Salt</label>' +
@@ -906,6 +909,7 @@
         var environment = (form.querySelector('[name="environment"]') || {}).value || '';
         var serviceRestart = (form.querySelector('[name="service_restart"]') || {}).value || '';
         var deployPath = (form.querySelector('[name="deploy_path"]') || {}).value || '';
+        var restartCmd = (form.querySelector('[name="restart_cmd"]') || {}).value || '';
         var deployEnabled = !!(form.querySelector('[name="deploy_enabled"]') || {}).checked;
 
         var submitBtn = form.querySelector('button[type="submit"]');
@@ -918,6 +922,7 @@
             environment: environment,
             service_restart: serviceRestart,
             deploy_path: deployPath,
+            restart_cmd: restartCmd,
             deploy_enabled: deployEnabled
         }, function (ok, res) {
             if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = origHtml; }

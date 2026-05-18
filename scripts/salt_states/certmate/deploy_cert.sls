@@ -1,28 +1,16 @@
-# Salt State: certmate.deploy_cert
-# Scarica il certificato (ZIP) da CertMate, lo estrae e riavvia il servizio
-#
-# Pillar richiesti:
-#   certmate_domain  : dominio del certificato (es. demo.certmate.local)
-#   certmate_url     : URL di CertMate raggiungibile dal minion
-#   certmate_token   : API token di CertMate
-#   service_restart  : servizio da riavviare (nginx, apache2, httpd)
-#   deploy_path      : (opzionale) path destinazione sul minion
-#                      default: /etc/nginx/ssl/<domain>
-
 {% set domain       = pillar.get('certmate_domain', '') %}
 {% set certmate_url = pillar.get('certmate_url', 'http://localhost:8000') %}
 {% set token        = pillar.get('certmate_token', '') %}
 {% set service      = pillar.get('service_restart', 'nginx') %}
 {% set cert_dir     = pillar.get('deploy_path', '/etc/nginx/ssl/' ~ domain) %}
 {% set zip_tmp      = '/tmp/certmate_' ~ domain ~ '.zip' %}
+{% set restart_cmd  = pillar.get('restart_cmd', '') %}
 
-# 1. Crea cartella certificati
 {{ cert_dir }}:
   file.directory:
     - makedirs: True
     - mode: 700
 
-# 2. Scarica il ZIP dei certificati
 download_cert_zip_{{ domain | replace('.', '_') }}:
   cmd.run:
     - name: >
@@ -33,14 +21,12 @@ download_cert_zip_{{ domain | replace('.', '_') }}:
     - require:
       - file: {{ cert_dir }}
 
-# 3. Estrai il ZIP nella cartella destinazione
 extract_cert_zip_{{ domain | replace('.', '_') }}:
   cmd.run:
     - name: unzip -o {{ zip_tmp }} -d {{ cert_dir }}
     - require:
       - cmd: download_cert_zip_{{ domain | replace('.', '_') }}
 
-# 4. Imposta permessi sicuri sulla chiave privata
 {{ cert_dir }}/privkey.pem:
   file.managed:
     - mode: 600
@@ -48,17 +34,23 @@ extract_cert_zip_{{ domain | replace('.', '_') }}:
     - require:
       - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
 
-# 5. Pulizia ZIP temporaneo
 cleanup_zip_{{ domain | replace('.', '_') }}:
   cmd.run:
     - name: rm -f {{ zip_tmp }}
     - require:
       - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
 
-# 6. Riavvia il servizio
+{% if restart_cmd %}
+reload_service_{{ domain | replace('.', '_') }}:
+  cmd.run:
+    - name: {{ restart_cmd }}
+    - require:
+      - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
+{% else %}
 {{ service }}_reload_{{ domain | replace('.', '_') }}:
   service.running:
     - name: {{ service }}
     - reload: True
     - watch:
       - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
+{% endif %}
