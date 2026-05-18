@@ -8,16 +8,29 @@
         Salt Deploy Settings
     </h3>
 
-    <!-- Master toggle -->
+    <!-- Header row: toggle + save button always visible -->
     <div class="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg mb-6">
-        <div>
-            <p class="font-medium text-gray-900 dark:text-white">Enable Salt Deploy</p>
-            <p class="text-sm text-gray-500 dark:text-gray-400">Deploy certificates automatically via Salt Stack after renewal</p>
+        <div class="flex items-center gap-4">
+            <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" x-model="config.enabled" class="sr-only peer" title="Enable Salt deploy">
+                <div class="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-orange-400 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-500 peer-checked:bg-orange-500"></div>
+            </label>
+            <div>
+                <p class="font-medium text-gray-900 dark:text-white">Enable Salt Deploy</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400">Deploy certificates automatically via Salt Stack after renewal</p>
+            </div>
         </div>
-        <label class="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" x-model="config.enabled" class="sr-only peer" title="Enable Salt deploy">
-            <div class="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-orange-400 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-500 peer-checked:bg-orange-500"></div>
-        </label>
+        <div class="flex items-center gap-3">
+            <p x-show="saveMsg" x-cloak
+               :class="saveOk ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'"
+               class="text-sm" x-text="saveMsg"></p>
+            <button type="button" @click="saveConfig()"
+                    :disabled="saving"
+                    class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-400">
+                <i class="fas mr-2" :class="saving ? 'fa-spinner fa-spin' : 'fa-save'"></i>
+                <span x-text="saving ? 'Saving...' : 'Save Salt Settings'"></span>
+            </button>
+        </div>
     </div>
 
     <div x-show="config.enabled" class="space-y-6">
@@ -182,18 +195,6 @@
         </div>
     </div>
 
-    <!-- Save button -->
-    <div class="flex items-center justify-between mt-6 pt-4 border-t border-gray-100 dark:border-white/5">
-        <p x-show="saveMsg" x-cloak
-           :class="saveOk ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'"
-           class="text-sm" x-text="saveMsg"></p>
-        <button type="button" @click="saveConfig()"
-                :disabled="saving"
-                class="ml-auto inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-400">
-            <i class="fas" :class="saving ? 'fa-spinner fa-spin' : 'fa-save'" class="mr-2"></i>
-            <span class="ml-2" x-text="saving ? 'Saving...' : 'Save Salt Settings'"></span>
-        </button>
-    </div>
 </div>
 
 <script>
