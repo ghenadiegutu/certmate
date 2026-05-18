@@ -25,10 +25,9 @@
                :class="saveOk ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'"
                class="text-sm" x-text="saveMsg"></p>
             <button type="button" @click="saveConfig()"
-                    :disabled="saving"
-                    class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-400">
-                <i class="fas mr-2" :class="saving ? 'fa-spinner fa-spin' : 'fa-save'"></i>
-                <span x-text="saving ? 'Saving...' : 'Save Salt Settings'"></span>
+                    class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-orange-500 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-400">
+                <i class="fas fa-save mr-2"></i>
+                Save Salt Settings
             </button>
         </div>
     </div>
