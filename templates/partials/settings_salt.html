@@ -234,7 +234,7 @@ function saltSettings() {
             const master = this.config.masters[idx];
             fetch('/api/salt/test-master', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
                 credentials: 'same-origin',
                 body: JSON.stringify(master)
             })
@@ -258,7 +258,7 @@ function saltSettings() {
 
             fetch('/api/salt/config', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
                 credentials: 'same-origin',
                 body: JSON.stringify(payload)
             })
