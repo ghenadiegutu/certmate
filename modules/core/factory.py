@@ -734,6 +734,12 @@ def setup_csrf_protection(app):
         if not request.cookies.get('certmate_session'):
             return None
 
+        # X-Requested-With is a safe CSRF signal for same-origin AJAX — browsers
+        # prevent cross-origin scripts from setting custom headers without CORS
+        # preflight, so this header cannot arrive from a malicious third-party page.
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return None
+
         expected = _normalize(request.scheme, request.host or '')
         origin = request.headers.get('Origin') or ''
         referer = request.headers.get('Referer') or ''

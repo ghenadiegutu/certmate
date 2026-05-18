@@ -11,7 +11,7 @@
     // API Configuration - session cookies are sent automatically
     var API_HEADERS = {
         'Content-Type': 'application/json',
-        'Origin': window.location.origin
+        'X-Requested-With': 'XMLHttpRequest'
     };
 
     var escapeHtml = CertMate.escapeHtml;
