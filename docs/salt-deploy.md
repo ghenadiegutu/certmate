@@ -169,6 +169,8 @@ Posiziona entrambi i file su ogni Salt Master in `/srv/salt/certmate/`.
 
 ### `deploy_cert.sls` — Installa il certificato
 
+> Scarica direttamente sul **minion** (non passa per il master). Richiede `curl` e `python3` (sempre disponibili su OEL/RHEL/Ubuntu). **Non richiede `unzip`.**
+
 ```jinja
 {% set domain       = pillar.get('certmate_domain', '') %}
 {% set certmate_url = pillar.get('certmate_url', 'http://localhost:8000') %}
@@ -176,6 +178,7 @@ Posiziona entrambi i file su ogni Salt Master in `/srv/salt/certmate/`.
 {% set service      = pillar.get('service_restart', 'nginx') %}
 {% set cert_dir     = pillar.get('deploy_path', '/etc/nginx/ssl/' ~ domain) %}
 {% set zip_tmp      = '/tmp/certmate_' ~ domain ~ '.zip' %}
+{% set restart_cmd  = pillar.get('restart_cmd', '') %}
 
 {{ cert_dir }}:
   file.directory:
@@ -193,30 +196,54 @@ download_cert_zip_{{ domain | replace('.', '_') }}:
 
 extract_cert_zip_{{ domain | replace('.', '_') }}:
   cmd.run:
-    - name: unzip -o {{ zip_tmp }} -d {{ cert_dir }}
+    - name: python3 -c "import zipfile; zipfile.ZipFile('{{ zip_tmp }}').extractall('{{ cert_dir }}')"
     - require:
       - cmd: download_cert_zip_{{ domain | replace('.', '_') }}
 
-{{ cert_dir }}/privkey.pem:
+rename_cert_files_{{ domain | replace('.', '_') }}:
+  cmd.run:
+    - name: >
+        mv -f {{ cert_dir }}/fullchain.pem {{ cert_dir }}/fullchain.cer &&
+        mv -f {{ cert_dir }}/privkey.pem {{ cert_dir }}/{{ domain }}.key
+    - require:
+      - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
+
+{{ cert_dir }}/{{ domain }}.key:
   file.managed:
     - mode: 600
     - replace: False
     - require:
-      - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
+      - cmd: rename_cert_files_{{ domain | replace('.', '_') }}
 
 cleanup_zip_{{ domain | replace('.', '_') }}:
   cmd.run:
     - name: rm -f {{ zip_tmp }}
     - require:
-      - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
+      - cmd: rename_cert_files_{{ domain | replace('.', '_') }}
 
+{% if restart_cmd %}
+reload_service_{{ domain | replace('.', '_') }}:
+  cmd.run:
+    - name: {{ restart_cmd }}
+    - require:
+      - cmd: rename_cert_files_{{ domain | replace('.', '_') }}
+{% else %}
 {{ service }}_reload_{{ domain | replace('.', '_') }}:
   service.running:
     - name: {{ service }}
     - reload: True
     - watch:
-      - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
+      - cmd: rename_cert_files_{{ domain | replace('.', '_') }}
+{% endif %}
 ```
+
+**File risultanti sul minion:**
+| File | Descrizione |
+|---|---|
+| `fullchain.cer` | Certificato + chain (rinominato da `fullchain.pem`) |
+| `<domain>.key` | Chiave privata (rinominata da `privkey.pem`) — chmod 600 |
+| `cert.pem` | Solo certificato |
+| `chain.pem` | Solo chain intermedia |
 
 ### `remove_cert.sls` — Rimuove il certificato
 
@@ -261,8 +288,9 @@ Ogni certificato può avere un file `salt_metadata.json` nella sua directory (`c
 |---|---|---|
 | `salt_masters` | `[]` | ID dei Salt Master configurati in Settings → Salt |
 | `minions` | `[]` | Lista minion target (nomi esatti Salt) |
-| `service_restart` | `nginx` | Servizio da ricaricare dopo il deploy |
+| `service_restart` | `nginx` | Servizio systemd da ricaricare dopo il deploy |
 | `deploy_path` | `/etc/nginx/ssl/<domain>` | Path destinazione sul minion |
+| `restart_cmd` | `` | Comando custom per riavvio (es. Docker Compose) — se impostato, sovrascrive `service_restart` |
 | `deploy_enabled` | `true` | Disabilita il deploy automatico per questo cert |
 
 ### API
@@ -371,6 +399,75 @@ lxc exec salt-master -- salt '*' test.ping
 
 ---
 
+## HTTP-01 Challenge con Varnish
+
+CertMate supporta la validazione **HTTP-01** di Let's Encrypt tramite la modalità webroot di certbot. Nessuna porta aggiuntiva richiesta — i token vengono serviti sulla stessa porta di CertMate (8000 o quella configurata).
+
+### Flusso
+
+```
+Let's Encrypt → GET http://domain.com/.well-known/acme-challenge/<token>
+                         ↓
+Varnish → proxy a CertMate:8000
+                         ↓
+CertMate serve il token da /app/data/acme-challenges/
+```
+
+### Configurazione Varnish (VCL)
+
+Aggiungi su ogni Varnish che gestisce domini con certificati CertMate:
+
+```vcl
+backend certmate {
+    .host = "192.168.1.X";   # IP di CertMate
+    .port = "8000";
+}
+
+sub vcl_recv {
+    if (req.url ~ "^/.well-known/acme-challenge/") {
+        set req.backend_hint = certmate;
+        return(pass);
+    }
+}
+```
+
+### Verifica
+
+```bash
+# Dal server Varnish — deve rispondere 404 (CertMate raggiunto, token non esiste)
+curl -v http://tuo-dominio/.well-known/acme-challenge/test
+# Se risponde la pagina del tuo sito → il VCL non è applicato
+```
+
+### Creazione certificato
+
+In CertMate → Create Certificate → **Challenge Type: HTTP-01**
+
+> HTTP-01 non supporta wildcard (`*.domain.com`) — per quelli usa DNS-01.
+
+---
+
+## Docker Compose sui minion
+
+Se il servizio gira come container Docker invece di systemd, usa il campo **Restart Command** nei metadata Salt:
+
+```json
+{
+  "restart_cmd": "docker compose -f /opt/myapp/docker-compose.yml restart web"
+}
+```
+
+Il `docker-compose.yml` del minion deve montare la directory dei certificati:
+
+```yaml
+services:
+  web:
+    volumes:
+      - /etc/nginx/ssl:/etc/nginx/ssl:ro
+```
+
+---
+
 ## Troubleshooting
 
 ### `Client disabled: local` (Salt 3008+)
@@ -395,6 +492,21 @@ salt-master -- salt 'web-01' test.ping
 
 ### Test connettività dalla UI
 Usa il pulsante **Test** su ogni Salt Master in Settings → Salt. Mostra il numero di minion visibili.
+
+### 5 stati falliti sul minion
+Causa più comune: il minion non raggiunge CertMate. Verifica che **CertMate URL** in Settings → Salt sia l'IP raggiungibile **dal minion** con la porta corretta (es. `http://192.168.1.X:8000`).
+
+```bash
+# Testa dal minion
+salt '<minion>' cmd.run "curl -sv http://<certmate-ip>:8000/api/health"
+```
+
+### `unzip: command not found`
+La state usa `python3` (disponibile su OEL/RHEL senza installare nulla). Se hai una versione vecchia della state, aggiornala:
+```bash
+curl -o /srv/salt/certmate/deploy_cert.sls \
+  https://raw.githubusercontent.com/ghenadiegutu/certmate/main/scripts/salt_states/certmate/deploy_cert.sls
+```
 
 ### Log deploy
 ```bash
