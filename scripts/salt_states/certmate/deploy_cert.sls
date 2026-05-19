@@ -23,7 +23,7 @@ download_cert_zip_{{ domain | replace('.', '_') }}:
 
 extract_cert_zip_{{ domain | replace('.', '_') }}:
   cmd.run:
-    - name: unzip -o {{ zip_tmp }} -d {{ cert_dir }}
+    - name: python3 -c "import zipfile; zipfile.ZipFile('{{ zip_tmp }}').extractall('{{ cert_dir }}')"
     - require:
       - cmd: download_cert_zip_{{ domain | replace('.', '_') }}
 
