@@ -1,9 +1,23 @@
 import os
-from flask import request, render_template, redirect, url_for, send_from_directory
+from pathlib import Path
+from flask import request, render_template, redirect, url_for, send_from_directory, abort
 
 
 def register_ui_routes(app, managers, require_web_auth, auth_manager):
     """Register UI-related routes"""
+
+    @app.route('/.well-known/acme-challenge/<path:token>')
+    def acme_challenge(token):
+        """Serve ACME HTTP-01 challenge tokens for certbot webroot mode.
+        Varnish (or any reverse proxy) should forward /.well-known/acme-challenge/* here.
+        """
+        # ui_routes.py is at /app/modules/web/ → three levels up = /app
+        app_root = Path(__file__).resolve().parent.parent.parent
+        challenge_dir = app_root / 'data' / 'acme-challenges' / '.well-known' / 'acme-challenge'
+        token_file = challenge_dir / token
+        if not token_file.exists() or not token_file.is_file():
+            abort(404)
+        return token_file.read_text(encoding='utf-8'), 200, {'Content-Type': 'text/plain'}
 
     @app.route('/')
     def index():
