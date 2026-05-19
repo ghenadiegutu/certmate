@@ -27,30 +27,38 @@ extract_cert_zip_{{ domain | replace('.', '_') }}:
     - require:
       - cmd: download_cert_zip_{{ domain | replace('.', '_') }}
 
-{{ cert_dir }}/privkey.pem:
+rename_cert_files_{{ domain | replace('.', '_') }}:
+  cmd.run:
+    - name: >
+        mv -f {{ cert_dir }}/fullchain.pem {{ cert_dir }}/fullchain.cer &&
+        mv -f {{ cert_dir }}/privkey.pem {{ cert_dir }}/{{ domain }}.key
+    - require:
+      - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
+
+{{ cert_dir }}/{{ domain }}.key:
   file.managed:
     - mode: 600
     - replace: False
     - require:
-      - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
+      - cmd: rename_cert_files_{{ domain | replace('.', '_') }}
 
 cleanup_zip_{{ domain | replace('.', '_') }}:
   cmd.run:
     - name: rm -f {{ zip_tmp }}
     - require:
-      - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
+      - cmd: rename_cert_files_{{ domain | replace('.', '_') }}
 
 {% if restart_cmd %}
 reload_service_{{ domain | replace('.', '_') }}:
   cmd.run:
     - name: {{ restart_cmd }}
     - require:
-      - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
+      - cmd: rename_cert_files_{{ domain | replace('.', '_') }}
 {% else %}
 {{ service }}_reload_{{ domain | replace('.', '_') }}:
   service.running:
     - name: {{ service }}
     - reload: True
     - watch:
-      - cmd: extract_cert_zip_{{ domain | replace('.', '_') }}
+      - cmd: rename_cert_files_{{ domain | replace('.', '_') }}
 {% endif %}
